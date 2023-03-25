@@ -7,7 +7,7 @@ from PIL import Image
 
 from config import RunConfig
 from pipeline_attend_and_excite import AttendAndExcitePipeline
-from utils import ptp_utils, vis_utils
+from utils import ptp_utils, vis_utils, shared_state
 from utils.ptp_utils import AttentionStore
 
 import warnings
@@ -70,6 +70,7 @@ def run_on_prompt(prompt: List[str],
 
 @pyrallis.wrap()
 def main(config: RunConfig):
+    shared_state.config = config
     if config.half_precision:
         torch.set_default_tensor_type(torch.HalfTensor)
     stable = load_model(config)
@@ -77,6 +78,7 @@ def main(config: RunConfig):
 
     images = []
     for seed in config.seeds:
+        shared_state.cur_seed = seed
         print(f"Seed: {seed}")
         g = torch.Generator('cuda').manual_seed(seed)
         controller = AttentionStore()
