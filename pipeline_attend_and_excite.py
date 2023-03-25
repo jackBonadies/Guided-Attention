@@ -25,6 +25,7 @@ from diffusers.models import unet_2d_condition
 from diffusers import DDIMScheduler
 
 import utils.shared_state as state
+from utils import helpers
 
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipeline
 
@@ -199,7 +200,6 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
 
     def _compute_max_attention_per_index(self,
                                          attention_maps: torch.Tensor,
-                                         indices_to_alter: List[int],
                                          smooth_attentions: bool = False,
                                          sigma: float = 0.5,
                                          kernel_size: int = 3,
@@ -220,7 +220,7 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
         # ^ now per pixel we get the softmax attn values NOT including the global token
 
         # Shift indices since we removed the first token
-        indices_to_alter = [index - 1 for index in indices_to_alter]
+        indices_to_alter = [index - 1 for index in state.config.token_dict.keys()]
 
         # Extract the maximum values
         max_indices_list = []
@@ -254,13 +254,12 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
             print("weighted center row: " + str(weighted_center_row.item()))
             col_list.append(weighted_center_col)
             row_list.append(weighted_center_row)
-        losses_dict["max_loss"] = max_indices_list
+        losses_dict["max_loss"] = max_indices_list #list is in order.
         losses_dict["col"] = col_list
         losses_dict["row"] = row_list
         return losses_dict
 
     def _aggregate_and_get_max_attention_per_token(self, attention_store: AttentionStore,
-                                                   indices_to_alter: List[int],
                                                    attention_res: int = 16,
                                                    smooth_attentions: bool = False,
                                                    sigma: float = 0.5,
@@ -278,7 +277,6 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
             select=0)
         losses_dict = self._compute_max_attention_per_index(
             attention_maps=attention_maps,
-            indices_to_alter=indices_to_alter,
             smooth_attentions=smooth_attentions,
             sigma=sigma,
             kernel_size=kernel_size,
@@ -290,15 +288,17 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
         """ Computes the attend-and-excite loss using the maximum attention value for each token. """
         losses = []
         for i in range(0, len(losses_dict["max_loss"])):
+            first_index = list(state.config.token_dict.keys())[i]
+            xy = state.config.token_dict[first_index]['loss']
             #losses_dict["max_loss"][i]
-            if state.toCoordinate:
-                part1 = max(0., 1.*(losses_dict["col"][i] - state.coor_X).abs()/15.) #8.* caused serious artifacts when optimizing in pixel space
-                part2 = max(0., 4.*(losses_dict["row"][i] - state.coor_Y).abs()/15.) #1. -- way too weak...
+            if len(xy)==2: #coordinates
+                part1 = max(0., 1.*(losses_dict["col"][i] - xy[0]*16).abs()/15.) #8.* caused serious artifacts when optimizing in pixel space
+                part2 = max(0., 4.*(losses_dict["row"][i] - xy[1]*16).abs()/15.) #1. -- way too weak...
                 losses.append(part1 + part2)
-            elif state.toRight:
-                losses.append(max(0, 2*(15. - losses_dict["col"][i])/15.)) # loss for each token
-            else:
-                losses.append(max(0, 2*(losses_dict["col"][i])/15.)) # loss for each token
+            # elif state.toRight:
+            #     losses.append(max(0, 2*(15. - losses_dict["col"][i])/15.)) # loss for each token
+            # else:
+            #     losses.append(max(0, 2*(losses_dict["col"][i])/15.)) # loss for each token
 
         loss = max(losses) # we only care about the token with max loss (TODO: potential optimization - we should care about all losses that are above the threshold)
         if return_losses:
@@ -325,7 +325,6 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
 
     def _perform_iterative_refinement_step(self,
                                            latents: torch.Tensor,
-                                           indices_to_alter: List[int],
                                            loss: torch.Tensor,
                                            threshold: float,
                                            text_embeddings: torch.Tensor,
@@ -360,11 +359,12 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
                 state.injectDeepFeatures = True
 
             #----optional, get without text condition to get diagnostic info from before optimizing...
-            noise_pred_uncond = None
-            with torch.no_grad(), state.TurnOffRequiresGradDeepLatent():
-                noise_pred_uncond = self.unet(latents, t,
-                                            encoder_hidden_states=text_embeddings[0].unsqueeze(0)).sample
-            self.unet.zero_grad()
+            if state.config.diagnostic_level > 0:
+                noise_pred_uncond = None
+                with torch.no_grad(), state.TurnOffRequiresGradDeepLatent():
+                    noise_pred_uncond = self.unet(latents, t,
+                                                encoder_hidden_states=text_embeddings[0].unsqueeze(0)).sample
+                self.unet.zero_grad()
             #----
 
             # when optimizing we do not need the noise_pred (or the x0 pred)
@@ -372,16 +372,16 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
             
             noise_pred_text = self.unet(latents, t, encoder_hidden_states=text_embeddings[1].unsqueeze(0)).sample
             self.unet.zero_grad()
-
-            with torch.no_grad():
-                noise_pred = noise_pred_uncond + 7.5 * (noise_pred_text - noise_pred_uncond)
-                ddim_output = self.scheduler.step(noise_pred, t, latents)
-                self.save_image(ddim_output.pred_original_sample, "pred_pre_optim" + str(iteration))
+            
+            if state.config.diagnostic_level > 0:
+                with torch.no_grad():
+                    noise_pred = noise_pred_uncond + 7.5 * (noise_pred_text - noise_pred_uncond)
+                    ddim_output = self.scheduler.step(noise_pred, t, latents)
+                    self.save_image(ddim_output.pred_original_sample, "pred_pre_optim" + str(iteration))
 
             # Get max activation value for each subject token
             losses_dict = self._aggregate_and_get_max_attention_per_token(
                 attention_store=attention_store,
-                indices_to_alter=indices_to_alter,
                 attention_res=attention_res,
                 smooth_attentions=smooth_attentions,
                 sigma=sigma,
@@ -394,10 +394,10 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
             if loss != 0:
                 latents = self._update_latent(latents, loss, step_size)
 
-
-            with torch.no_grad(), state.TurnOffRequiresGradDeepLatent():
-                noise_pred_uncond = self.unet(latents, t, encoder_hidden_states=text_embeddings[0].unsqueeze(0)).sample
-                noise_pred_text = self.unet(latents, t, encoder_hidden_states=text_embeddings[1].unsqueeze(0)).sample
+            if state.config.diagnostic_level > 0:
+                with torch.no_grad(), state.TurnOffRequiresGradDeepLatent():
+                    noise_pred_uncond = self.unet(latents, t, encoder_hidden_states=text_embeddings[0].unsqueeze(0)).sample
+                    noise_pred_text = self.unet(latents, t, encoder_hidden_states=text_embeddings[1].unsqueeze(0)).sample
 
             try:
                 low_token = np.argmax([l.item() if type(l) != int else l for l in losses])
@@ -405,9 +405,10 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
                 print(e)  # catch edge case :)
                 low_token = np.argmax(losses)
 
-            low_word = self.tokenizer.decode(text_input.input_ids[0][indices_to_alter[low_token]])
-            print(f'\t Try {iteration}. {low_word} has a max attention of {losses_dict["max_loss"][low_token]}')
-            print(f'\t Try {iteration}. {low_word} has a has centroid of {losses_dict["col"][low_token]}')
+            #TODO multi token
+            # low_word = self.tokenizer.decode(text_input.input_ids[0][indices_to_alter[low_token]])
+            # print(f'\t Try {iteration}. {low_word} has a max attention of {losses_dict["max_loss"][low_token]}')
+            # print(f'\t Try {iteration}. {low_word} has a has centroid of {losses_dict["col"][low_token]}')
             if iteration >= max_refinement_steps:
                 print(f'\t Exceeded max number of iterations ({max_refinement_steps})! '
                       f'Finished with a max attention of {losses_dict["max_loss"][low_token]}')
@@ -422,7 +423,6 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
         # Get max activation value for each subject token
         max_attention_per_index = self._aggregate_and_get_max_attention_per_token(
             attention_store=attention_store,
-            indices_to_alter=indices_to_alter,
             attention_res=attention_res,
             smooth_attentions=smooth_attentions,
             sigma=sigma,
@@ -601,7 +601,6 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
             self,
             prompt: Union[str, List[str]],
             attention_store: AttentionStore,
-            indices_to_alter: List[int],
             attention_res: int = 16,
             height: Optional[int] = None,
             width: Optional[int] = None,
@@ -770,12 +769,13 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
                         latents = latents.clone().detach().requires_grad_(True) #basically restart node graph
                     state.injectDeepFeatures = False #i.e. do not reuse the old noiser one.
 
-                    #----optional, get without text condition to get diagnostic info from before optimizing...
-                    with torch.no_grad(), state.TurnOffRequiresGradDeepLatent():
-                        noise_pred_uncond = self.unet(latents, t,
-                                                    encoder_hidden_states=prompt_embeds[0].unsqueeze(0), cross_attention_kwargs=cross_attention_kwargs).sample
-                    self.unet.zero_grad()
-                    #----
+                    if state.config.diagnostic_level > 0:
+                        #----optional, get without text condition to get diagnostic info from before optimizing...
+                        with torch.no_grad(), state.TurnOffRequiresGradDeepLatent():
+                            noise_pred_uncond = self.unet(latents, t,
+                                                        encoder_hidden_states=prompt_embeds[0].unsqueeze(0), cross_attention_kwargs=cross_attention_kwargs).sample
+                        self.unet.zero_grad()
+                        #----
 
                     # Forward pass of denoising with text conditioning
                     noise_pred_text = self.unet(latents, t,
@@ -783,18 +783,18 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
                     #ddim_output = self.scheduler.step(noise_pred_text, t, latents, **extra_step_kwargs)
                     self.unet.zero_grad()
 
+                    if state.config.diagnostic_level > 0:
                     #----diagnostics
-                    with torch.no_grad():
-                        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
-                        ddim_output = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs)
-                        self.save_image(ddim_output.pred_original_sample, "pred_pre_optim")
+                        with torch.no_grad():
+                            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                            ddim_output = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs)
+                            self.save_image(ddim_output.pred_original_sample, "pred_pre_optim")
                     #----
 
 
                     # Get max activation value for each subject token
                     max_attention_per_index = self._aggregate_and_get_max_attention_per_token(
                         attention_store=attention_store,
-                        indices_to_alter=indices_to_alter,
                         attention_res=attention_res,
                         smooth_attentions=smooth_attentions,
                         sigma=sigma,
@@ -812,7 +812,6 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
                             # here we return the new optimized latent
                             loss, latents, max_attention_per_index = self._perform_iterative_refinement_step(
                                 latents=latents,
-                                indices_to_alter=indices_to_alter,
                                 loss=loss,
                                 threshold=thresholds[i],
                                 text_embeddings=prompt_embeds,
@@ -856,8 +855,10 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
                 with torch.no_grad():
                     ddim_output = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs)
                     latents = ddim_output.prev_sample
-                    self.save_image(latents, "xt")
-                    self.save_image(ddim_output.pred_original_sample, "pred")
+                    if state.config.diagnostic_level > 1:
+                        self.save_image(latents, "xt") #looks just like pred but with added noise....
+                    if state.config.diagnostic_level > 0:
+                        self.save_image(ddim_output.pred_original_sample, "pred")
 
                 # call the callback, if provided
                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
@@ -880,15 +881,17 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
 
         return StableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept)
     
+
+
+
     def save_viridis(self, tensor1, tag):
         with torch.no_grad():
             x = tensor1 - tensor1.min()
             x = x / x.max()
-            fname = tag + "_" + state.config.prompt + state.get_name() + "_subiter_" + str(state.sub_iteration) + ".png"
+            fname = tag + "_" + helpers.get_meta_prompt_clean() + state.get_name() + "_subiter_" + str(state.sub_iteration) + ".png"
             prompt_output_path = state.config.output_path / state.config.prompt / str(state.cur_seed)
             prompt_output_path.mkdir(exist_ok=True, parents=True)
             plt.imsave(prompt_output_path / fname, x.detach().cpu())
-
 
     def get_token(self, index):
         return self.tokenizer.decode(self.tokenizer(state.config.prompt)['input_ids'][index])
@@ -897,7 +900,9 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
         image = self.decode_latents(latent.detach())
         image = self.numpy_to_pil(image)
         #fname = state.config.prompt + "_iter" + str(state.cur_time_step_iter) + "_" + tag + "_seed" + str(state.cur_seed) + "_toRight" + str(state.toRight) + ".png"
-        fname = state.config.prompt + state.get_name() + "_" + tag + ".png"
+        fname = helpers.get_meta_prompt_clean() + state.get_name() + "_" + tag
+        fname = fname.replace('[','_').replace(']','_').replace(':','_').replace('.','_') + ".png"
         prompt_output_path = state.config.output_path / state.config.prompt / str(state.cur_seed)
         prompt_output_path.mkdir(exist_ok=True, parents=True)
+        helpers.annotate_image(image)
         image[0].save(prompt_output_path / fname)

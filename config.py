@@ -5,12 +5,10 @@ from typing import Dict, List
 
 @dataclass
 class RunConfig:
-    # Guiding text prompt
-    prompt: str
+    # Guiding meta prompt ex. 'a [rat:51,107] and a [fox:288,241]'
+    meta_prompt: str
     # Whether to use Stable Diffusion v2.1
     sd_2_1: bool = False
-    # Which token indices to alter with attend-and-excite
-    token_indices: List[int] = None
     # Which random seeds to use when generating
     seeds: List[int] = field(default_factory=lambda: [42])
     # Path to save all outputs to
@@ -41,6 +39,12 @@ class RunConfig:
     save_cross_attention_maps: bool = False
     # Whether to use half precision (low vram)
     half_precision: bool = False
+    #launch flask web ui
+    interactive: bool = False
+    #diagnostic_level: 0 == none, 1 == medium, 2 == all
+    diagnostic_level: int = 0
+    #annotate
+    annotate: bool = False
 
     def __post_init__(self):
         self.output_path.mkdir(exist_ok=True, parents=True)

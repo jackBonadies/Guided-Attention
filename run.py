@@ -7,7 +7,7 @@ from PIL import Image
 
 from config import RunConfig
 from pipeline_attend_and_excite import AttendAndExcitePipeline
-from utils import ptp_utils, vis_utils, shared_state
+from utils import ptp_utils, vis_utils, shared_state, helpers
 from utils.ptp_utils import AttentionStore
 
 import warnings
@@ -43,14 +43,12 @@ def get_indices_to_alter(stable, prompt: str) -> List[int]:
 def run_on_prompt(prompt: List[str],
                   model: AttendAndExcitePipeline,
                   controller: AttentionStore,
-                  token_indices: List[int],
                   seed: torch.Generator,
                   config: RunConfig) -> Image.Image:
     if controller is not None:
         ptp_utils.register_attention_control(model, controller)
     outputs = model(prompt=prompt,
                     attention_store=controller,
-                    indices_to_alter=token_indices,
                     attention_res=config.attention_res,
                     guidance_scale=config.guidance_scale,
                     generator=seed,
@@ -67,35 +65,64 @@ def run_on_prompt(prompt: List[str],
     image = outputs.images[0]
     return image
 
+def get_indices(tokenized_prompt, tokens):
+    tokens_len = len(tokens)
+    for i in range(0,len(tokenized_prompt) - tokens_len):
+        if tokenized_prompt[i:i+tokens_len] == tokens:
+            return list(range(i,i+tokens_len))
 
-@pyrallis.wrap()
-def main(config: RunConfig):
+def execute(config):
+    config.prompt, config.meta_info = helpers.parse_prompt(config.meta_prompt)
     shared_state.config = config
-    if config.half_precision:
-        torch.set_default_tensor_type(torch.HalfTensor)
-    stable = load_model(config)
-    token_indices = get_indices_to_alter(stable, config.prompt) if config.token_indices is None else config.token_indices
-
+    tokenized_prompt = config.stable.tokenizer(config.prompt)['input_ids']
+    token_dict = {} #relates indice to word and loss
+    for meta_info_item in config.meta_info:
+        tokens = config.stable.tokenizer(meta_info_item[0])['input_ids'][1:-1]
+        indices = get_indices(tokenized_prompt, tokens)
+        for indice in indices:
+            token_dict[indice] = {'word':config.stable.tokenizer.decode(tokenized_prompt[indice]), 'loss':meta_info_item[2]} # a tuple (x,y)
+    config.token_dict = token_dict
     images = []
+    image_path = None
     for seed in config.seeds:
         shared_state.cur_seed = seed
         print(f"Seed: {seed}")
         g = torch.Generator('cuda').manual_seed(seed)
         controller = AttentionStore()
         image = run_on_prompt(prompt=config.prompt,
-                              model=stable,
-                              controller=controller,
-                              token_indices=token_indices,
-                              seed=g,
-                              config=config)
+                            model=config.stable,
+                            controller=controller,
+                            seed=g,
+                            config=config)
         prompt_output_path = config.output_path / config.prompt
         prompt_output_path.mkdir(exist_ok=True, parents=True)
+        image_path = prompt_output_path / f'{seed}.png'
+        helpers.annotate_image(image)
         image.save(prompt_output_path / f'{seed}.png')
         images.append(image)
 
     # save a grid of results across all seeds
     joined_image = vis_utils.get_image_grid(images)
-    joined_image.save(config.output_path / f'{config.prompt}.png')
+    helpers.annotate_image(joined_image)
+    joined_image.save(config.output_path / f'{helpers.get_meta_prompt_clean()}.png')
+    return image_path
+    
+skipLoading = False
+
+@pyrallis.wrap()
+def main(config: RunConfig):
+    shared_state.config = config
+    if not skipLoading:
+        if config.half_precision:
+            torch.set_default_tensor_type(torch.HalfTensor)
+        stable = load_model(config)
+        config.stable = stable
+    if config.interactive:
+        import gui
+        gui.run()
+    else:
+        execute(config)
+
 
 
 if __name__ == '__main__':

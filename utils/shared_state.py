@@ -19,10 +19,10 @@ def get_name():
     name = ""
     for t in tags:
         name += str(t) + "_" + str(globals()[t]) + "_"
-    if toCoordinate:
-        name += "toCoordinate_X_" + str(coor_X) + "_Y_" + str(coor_Y) + "_"
-    else:
-        name += "toRight_" + str(toRight) + "_"
+    # if toCoordinate:
+    #     name += "toCoordinate_X_" + str(coor_X) + "_Y_" + str(coor_Y) + "_"
+    # else:
+    #     name += "toRight_" + str(toRight) + "_"
     return name
 
 class TurnOffRequiresGradDeepLatent(object):     

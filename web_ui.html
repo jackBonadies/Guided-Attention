@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas Crosshair</title>
+	    <style>
+        .editable {
+            width: 100%;
+            min-height: 100px;
+            border: 1px solid #000;
+            padding: 8px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+        }
+    </style>
+	
+</head>
+<body>
+    
+    <canvas id="myCanvas" width="512" height="512" style="border:1px solid #000000;"></canvas>
+    <image id="outImage"></image>
+	<div id="editableDiv" class="editable" contenteditable="true"></div>
+	<button id="add_crosshair">Add Crosshair</button>
+	<button id="add_bounding_box">Add Bounding Box</button>
+	<button id="submit1">Submit</button>
+	<form id="executeFunctionForm" action="{{ url_for('execute_function') }}" method="post">
+	
+	<button type="submit">Execute Python Function</button>
+      <button type="submit">Execute Python Function</button>
+    </form>
+	<script>
+
+
+
+function getUnusedColor()
+{
+    colorsCopy = [];
+    for (i = 0; i < colors.length; i++) {
+        colorsCopy[i] = colors[i];
+    }
+    for(var i=0;i<elements.length;i++)
+	{
+        let el = elements[i]
+        let c = el.info.color
+        colorsCopy = colorsCopy.filter(item => item !== c)
+    }
+    return colorsCopy[0]
+}
+
+let drawImage = false
+var img = document.getElementById("outImage");
+
+img.style.visibility = "hidden"; 
+//drawImage = true
+
+colors = ['Blue', 'Green', 'OrangeRed', 'Yellow']
+elements = []
+function redrawCanvas() {
+
+    if (drawImage)
+    {
+        var img = document.getElementById("outImage");
+        ctx.drawImage(img, 0, 0)
+    }
+
+	for(var i=0;i<elements.length;i++)
+	{
+		// <!-- if(elements[i].isVisible) -->
+		// <!-- { -->
+		let el = elements[i]
+        if (el instanceof BoundingBox)
+        {
+            console.log("redraw bb")
+            drawBox(el.startX, el.startY, el.width, el.height, el.info.text, el.info.color);
+        }
+        else if (el instanceof Crosshair)
+        {
+            drawCrosshair(el.x, el.y, el.info.text, el.info.color)
+        }
+		
+		// <!-- } -->
+    }
+}
+
+const but1 = document.getElementById('submit1');
+but1.addEventListener('click', sendDataToFlask);
+
+function createMetaPrompt()
+{
+    let text = editableDiv.innerText
+    for(var i=0;i<elements.length;i++)
+    {
+        let sub_text = elements[i].info.text
+        let start = text.indexOf(sub_text)
+        let end = start + sub_text.length
+        text = text.substring(0, start) + "[" + sub_text + ":" + (elements[i].x)/(canvasWidth) + "," + (elements[i].y)/(canvasHeight) + "]" + " " + text.substring(end)
+    }
+    return text
+}
+
+async function sendDataToFlask() {
+
+    let meta_prompt = createMetaPrompt()
+    meta_prompt = meta_prompt.replace('\n','')
+
+    const data = {
+        variable1: meta_prompt,
+    };
+
+    const response = await fetch('/execute_function', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+    });
+
+    const responseData = await response.json();
+    path1 = responseData['result'] 
+    path1 = "8.png"
+    drawImage = true
+    var img = document.getElementById("outImage");
+    // var beginning = "{{ url_for('static', filename='";
+    // var end = "') }}";
+    img.src = "/static/output.png"
+
+    redrawCanvas()
+
+    setTimeout(function () { //TODO why is this necessary
+        redrawCanvas()
+    }, 500);
+
+    //editableDiv.innerHTML = responseData['result'] //image location?
+}
+	
+const canvas = document.getElementById('myCanvas');
+const canvasWidth = canvas.width
+const canvasHeight = canvas.height
+const ctx = canvas.getContext('2d');
+const crosshairSize = 20;
+
+
+let text_cur = null
+let color_cur = null
+let index_cur = null
+
+
+function getSelectedText() {
+    let selectedText = '';
+
+    if (window.getSelection) {
+        selectedText = window.getSelection().toString();
+    } else if (document.selection && document.selection.type != "Control") {
+        selectedText = document.selection.createRange().text;
+    }
+	
+    text_cur = selectedText
+    color_cur = getUnusedColor()
+
+    start = editableDiv.innerHTML.indexOf(selectedText)
+    end = start + selectedText.length
+    
+    //start, end = getStartAndEnd()
+	
+	editableDiv.innerHTML = editableDiv.innerHTML.substring(0, start) + '<span style="color:' + color_cur + ';">' + selectedText + '</span>' + editableDiv.innerHTML.substring(end)
+
+
+    //displaySelectedText(selectedText);
+}
+
+function getStartAndEnd()
+{
+    const range = window.getSelection().getRangeAt(0);
+    const preSelectionRange = range.cloneRange();
+
+    preSelectionRange.selectNodeContents(editableDiv);
+    preSelectionRange.setEnd(range.startContainer, range.startOffset);
+
+    let startIndex = preSelectionRange.toString().length;
+
+    selection = window.getSelection();
+
+    if (selection.rangeCount > 0) 
+    {
+        const range = selection.getRangeAt(0);
+        const preSelectionRange = range.cloneRange();
+
+        preSelectionRange.selectNodeContents(editableDiv);
+        preSelectionRange.setEnd(range.startContainer, range.startOffset);
+
+        const startIndex = preSelectionRange.toString().length;
+
+        console.log('Selected text index:', startIndex);
+    } 
+
+
+
+
+    let ourIndex = -1
+    let summed = 0
+    // if we are after a span there will be previous nodes
+    if(window.getSelection().getRangeAt(0).commonAncestorContainer != null)
+    {
+        // what is the index of our node
+        for(let i=0;i<window.getSelection().getRangeAt(0).commonAncestorContainer.childNodes.length; i++)
+        {
+            if(window.getSelection().getRangeAt(0).commonAncestorContainer.childNodes[i].nodeValue == window.getSelection().anchorNode.nodeValue)
+            {
+                ourIndex = i
+                break
+            }
+            else
+            {
+                summed += getNodeSize(window.getSelection().getRangeAt(0).commonAncestorContainer.childNodes[i])//).innerHTML.toString().length
+            }
+        }
+    }
+    
+    
+    if(ourIndex != -1)
+    {
+        startIndex += summed
+    }
+
+    index1 = startIndex
+
+	let start = index1
+	let end = start + selectedText.length
+    return start, end
+}
+
+function getNodeSize(node){
+    if (node.nodeType == Node.TEXT_NODE)
+    {
+        return node.nodeValue.toString().length
+    }
+    else
+    {
+        return node.outerHTML.toString().length
+    }
+}
+
+function drawCrosshair(x, y, text1, color1) {
+    ctx.beginPath();
+
+    // Draw horizontal line
+    ctx.moveTo(x - crosshairSize / 2, y);
+    ctx.lineTo(x + crosshairSize / 2, y);
+
+    // Draw vertical line
+    ctx.moveTo(x, y - crosshairSize / 2);
+    ctx.lineTo(x, y + crosshairSize / 2);
+
+    ctx.strokeStyle = color1;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    drawTextWithRoundedBackground(text1, x + 2, y + 2, color1)
+}
+
+
+function drawTextWithRoundedBackground(text, x, y, backgroundColor) {
+  console.log("drawing text " + x + " " + y)
+  textColor = 'white'
+  let borderRadius = 0
+
+  // Set the text and background colors
+  ctx.fillStyle = backgroundColor;
+  ctx.strokeStyle = backgroundColor;
+
+  // Calculate the width and height of the text
+  ctx.font = '14px sans-serif';
+  const metrics = ctx.measureText(text);
+  const textWidth = metrics.width;
+  const textHeight = parseInt(ctx.font);
+
+  // Draw the rounded rectangle background
+  ctx.beginPath();
+  ctx.moveTo(x + borderRadius, y);
+  ctx.lineTo(x + textWidth - borderRadius, y);
+  ctx.quadraticCurveTo(x + textWidth, y, x + textWidth, y + borderRadius);
+  ctx.lineTo(x + textWidth, y + textHeight - borderRadius);
+  ctx.quadraticCurveTo(x + textWidth, y + textHeight, x + textWidth - borderRadius, y + textHeight);
+  ctx.lineTo(x + borderRadius, y + textHeight);
+  ctx.quadraticCurveTo(x, y + textHeight, x, y + textHeight - borderRadius);
+  ctx.lineTo(x, y + borderRadius);
+  ctx.quadraticCurveTo(x, y, x + borderRadius, y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Draw the text on top of the background
+  ctx.fillStyle = textColor;
+  ctx.fillText(text, x, y + textHeight * 0.8);
+}
+
+//drawTextWithRoundedBackground('Hello, world!', 50, 50, 'rgba(0, 128, 0, 0.5)', 'white', 0);
+
+let isDrawing = false
+let addingBoundingBox = false
+let addingCrosshair = false
+
+canvas.addEventListener('mousedown', function(event) {
+    if(!addingBoundingBox)
+    {
+        return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    startX = event.clientX - rect.left;
+    startY = event.clientY - rect.top;
+    isDrawing = true;
+});
+
+canvas.addEventListener('mousemove', function(event) {
+    if(!addingBoundingBox)
+    {
+        return;
+    }
+    if (!isDrawing) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+	
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+	redrawCanvas()
+    drawBox(startX, startY, x - startX, y - startY);
+});
+
+class Info
+{
+    constructor(text, color)
+    {
+        this.text = text;
+        this.color = color;
+    }
+}
+
+class BoundingBox
+{
+    constructor(startX, startY, width, height, info)
+    {
+        this.startX = startX;
+        this.startY = startY;
+        this.width = width;
+        this.height = height;
+        this.info = info;
+    }
+}
+
+class Crosshair
+{
+    constructor(x, y, info)
+    {
+        this.x = x;
+        this.y = y;
+        this.info = info;
+    }
+}
+
+
+canvas.addEventListener('mouseup', function(event) {
+	if (isDrawing)
+	{
+		const rect = canvas.getBoundingClientRect();
+	    const x = event.clientX - rect.left;
+		const y = event.clientY - rect.top;
+        let b = new BoundingBox(startX, startY, x-startX, y-startY, new Info(text_cur, color_cur))
+		elements.push(b)
+	}
+	addingBoundingBox = false;
+    isDrawing = false;
+});
+
+function drawBox(x, y, width, height, text, color) {
+    console.log("draw box " + x + " " + y)
+    ctx.beginPath();
+    ctx.rect(x, y, width, height);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+	if (text != null) //!== doesnt work todo
+	{
+		drawTextWithRoundedBackground(text, x, y, color)
+	}
+	
+}
+
+
+canvas.addEventListener('click', function(event) {
+    if(!addingCrosshair)
+    {
+        return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    let b = new Crosshair(x, y, new Info(text_cur, color_cur))
+	elements.push(b)
+    // Clear the canvas before drawing the new crosshair
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    redrawCanvas()
+    addingCrosshair = false
+});
+
+const addCrosshair = document.getElementById('add_crosshair');
+addCrosshair.addEventListener("click", addCrosshairClick);
+
+
+const addBoundingBox = document.getElementById('add_bounding_box');
+addBoundingBox.addEventListener("click", addBoundingBoxClick);
+
+
+
+function addCrosshairClick() {
+    addingCrosshair = true
+    getSelectedText()
+}
+
+function addBoundingBoxClick() {
+    addingBoundingBox = true
+    getSelectedText()
+}
+
+
+
+// Draw crosshair at the center of the canvas
+const centerX = canvas.width / 2;
+const centerY = canvas.height / 2;
+drawCrosshair(centerX, centerY);
+
+const editableDiv = document.getElementById('editableDiv');
+
+editableDiv.addEventListener('input', function() {
+    // <!-- const words = editableDiv.innerText.split(' '); -->
+    // <!-- let colorfulHTML = ''; -->
+
+    // <!-- for (const word of words) { -->
+    //     <!-- const color = getColorForWord(word); -->
+    //     <!-- colorfulHTML += `<span style="color:${color};">${word}</span> `; -->
+    // <!-- } -->
+
+    // <!-- editableDiv.innerHTML = colorfulHTML; -->
+    // <!-- placeCaretAtEnd(editableDiv); -->
+});
+
+function getColorForWord(word) {
+    // Customize this function to return different colors for different words
+    if (word.toLowerCase() === 'red') {
+        return 'red';
+    } else if (word.toLowerCase() === 'blue') {
+        return 'blue';
+    } else if (word.toLowerCase() === 'green') {
+        return 'green';
+    } else {
+        return 'black';
+    }
+}
+
+function placeCaretAtEnd(el) {
+    el.focus();
+    if (typeof window.getSelection != "undefined" && typeof document.createRange != "undefined") {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+    } else if (typeof document.body.createTextRange != "undefined") {
+        const textRange = document.body.createTextRange();
+        textRange.moveToElementText(el);
+        textRange.collapse(false);
+        textRange.select();
+    }
+}
+
+	</script>
+</body>
+</html>
