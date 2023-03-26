@@ -94,7 +94,7 @@ function createMetaPrompt()
         let sub_text = elements[i].info.text
         let start = text.indexOf(sub_text)
         let end = start + sub_text.length
-        text = text.substring(0, start) + "[" + sub_text + ":" + (elements[i].x)/(canvasWidth) + "," + (elements[i].y)/(canvasHeight) + "]" + " " + text.substring(end)
+        text = text.substring(0, start) + "[" + sub_text + ":" + elements[i].get_coords() + "]" + " " + text.substring(end)
     }
     return text
 }
@@ -319,13 +319,15 @@ canvas.addEventListener('mousemove', function(event) {
     if (!isDrawing) return;
 
     const rect = canvas.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
+    let x = event.clientX - rect.left;
+    let y = event.clientY - rect.top;
 
 	
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-	redrawCanvas()
-    drawBox(startX, startY, x - startX, y - startY);
+	redrawCanvas();
+    //[startX, startY, x, y] = startXyTopLeft(startX, startY, x, y)
+    console.log("startX " + startX + " X " + x)
+    drawBox(startX, startY, x - startX, y - startY, text_cur, color_cur);
 });
 
 class Info
@@ -347,6 +349,12 @@ class BoundingBox
         this.height = height;
         this.info = info;
     }
+
+    get_coords() 
+    {
+        return this.startX/canvasWidth + "," + this.startY/canvasHeight + "," + this.width/canvasWidth + "," + this.height/canvasHeight;
+    }
+    
 }
 
 class Crosshair
@@ -357,6 +365,31 @@ class Crosshair
         this.y = y;
         this.info = info;
     }
+
+    get_coords() 
+    {
+        return this.startX/canvasWidth + "," + this.startY/canvasHeight
+    }
+}
+
+function startXyTopLeft(startX, startY, x, y)
+{
+
+    if(startX > x)
+    {
+        let temp = startX
+        startX = x
+        x = temp
+    }
+
+    if(startY > y)
+    {
+        let temp = startY
+        startY = y
+        y = temp
+    }
+
+    return [startX, startY, x, y]
 }
 
 
@@ -364,8 +397,9 @@ canvas.addEventListener('mouseup', function(event) {
 	if (isDrawing)
 	{
 		const rect = canvas.getBoundingClientRect();
-	    const x = event.clientX - rect.left;
-		const y = event.clientY - rect.top;
+	    let x = event.clientX - rect.left;
+		let y = event.clientY - rect.top;
+        [startX, startY, x, y] = startXyTopLeft(startX, startY, x, y)
         let b = new BoundingBox(startX, startY, x-startX, y-startY, new Info(text_cur, color_cur))
 		elements.push(b)
 	}
@@ -382,6 +416,14 @@ function drawBox(x, y, width, height, text, color) {
     ctx.stroke();
 	if (text != null) //!== doesnt work todo
 	{
+        if(width < 0)
+        {
+            x += width
+        }
+        if(height < 0)
+        {
+            y += height
+        }
 		drawTextWithRoundedBackground(text, x, y, color)
 	}
 	
@@ -400,8 +442,8 @@ canvas.addEventListener('click', function(event) {
 	elements.push(b)
     // Clear the canvas before drawing the new crosshair
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    redrawCanvas()
-    addingCrosshair = false
+    redrawCanvas();
+    addingCrosshair = false;
 });
 
 const addCrosshair = document.getElementById('add_crosshair');
