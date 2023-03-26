@@ -226,6 +226,8 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
         max_indices_list = []
         col_list = []
         row_list = []
+        inside_loss_list = []
+        outside_loss_list = []
         for i in indices_to_alter:
             image = attention_for_text[:, :, i] #16, 16
             self.save_viridis(image, "_attnmap_" + self.get_token(i + 1))
@@ -241,11 +243,12 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
             # this is softmax for pixel space (i.e. which pixels pay most attn to token x i.e. attn[:,:,0].sum() == 1) 
             # whereas above was which tokens does pixel y pay most attn. (i.e. attn[0][0].sum() == 1)
             #imageSoftmax = torch.nn.functional.softmax(image.flatten() * .2, dim=-1).reshape(16,16)
-            imageSoftmax = image/ image.sum()
+            imageSoftmax = image / image.sum()
             for ii in range(0, 16):
                 for jj in range(0, 16):
-                    weighted_center_col += (jj) * imageSoftmax[ii][jj] #weighed x. should be between 0 and 16.
-                    weighted_center_row += (ii) * imageSoftmax[ii][jj] #weighed y. should be between 0 and 16.
+                    # sample pixels at center. so center of image is (8,8). without adding .5 it would be at (7.5 7.5).
+                    weighted_center_col += (jj + .5) * imageSoftmax[ii][jj] #weighed x. 
+                    weighted_center_row += (ii + .5) * imageSoftmax[ii][jj] #weighed y.
 
             #indexMax = image.flatten().argmax() #NOT differentiable...
             # col = indexMax % 16
@@ -254,9 +257,20 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
             print("weighted center row: " + str(weighted_center_row.item()))
             col_list.append(weighted_center_col)
             row_list.append(weighted_center_row)
+            if state.config.token_dict[i+1]['loss_type'] == helpers.AnnotationType.BOX:
+                rect = state.config.token_dict[i+1]['loss']
+                inside_loss, outside_loss = helpers.calculate_bounding_box_losses(rect.of_size(16.0), imageSoftmax)
+                inside_loss_list.append(inside_loss)
+                outside_loss_list.append(outside_loss)
+            else:
+                inside_loss_list.append(0)
+                outside_loss_list.append(0)
+
         losses_dict["max_loss"] = max_indices_list #list is in order.
         losses_dict["col"] = col_list
         losses_dict["row"] = row_list
+        losses_dict["inside_loss"] = inside_loss_list
+        losses_dict["outside_loss"] = outside_loss_list
         return losses_dict
 
     def _aggregate_and_get_max_attention_per_token(self, attention_store: AttentionStore,
@@ -299,10 +313,16 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
                 losses.append(part1 + part2)
             elif token_info['loss_type'] == helpers.AnnotationType.BOX:
                 rect = token_info['loss']
-                center = rect.get_center()
-                part1 = max(0., 1.*(losses_dict["col"][i] - center[0]*16).abs()/15.) #8.* caused serious artifacts when optimizing in pixel space
-                part2 = max(0., 4.*(losses_dict["row"][i] - center[1]*16).abs()/15.) #1. -- way too weak...
-                losses.append(part1 + part2)
+                center = rect.center()
+                # should be centered
+                # part1 = max(0., 1.*(losses_dict["col"][i] - center[0]*16).abs()/15.) #8.* caused serious artifacts when optimizing in pixel space
+                # part2 = max(0., 4.*(losses_dict["row"][i] - center[1]*16).abs()/15.) #1. -- way too weak...
+
+                part3 = 10.*losses_dict["inside_loss"][i] 
+
+                part4 = 100.*losses_dict["outside_loss"][i] 
+
+                losses.append(part3 + part4)
             # elif state.toRight:
             #     losses.append(max(0, 2*(15. - losses_dict["col"][i])/15.)) # loss for each token
             # else:

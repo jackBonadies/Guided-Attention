@@ -17,11 +17,11 @@ class RunConfig:
     n_inference_steps: int = 50
     # Text guidance scale
     guidance_scale: float = 7.5
-    # Number of denoising steps to apply attend-and-excite
+    # Number of denoising steps to apply guided attention
     max_iter_to_alter: int = 25
     # Resolution of UNet to compute attention maps over
     attention_res: int = 16
-    # Whether to run standard SD or attend-and-excite
+    # Whether to run standard SD without any guided attention
     run_standard_sd: bool = False
     # Dictionary defining the iterations and desired thresholds to apply iterative latent refinement in
     thresholds: Dict[int, float] = field(default_factory=lambda: {0: 0.05, 10: 0.5, 20: 0.8})
