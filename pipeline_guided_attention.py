@@ -301,6 +301,7 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
     def _compute_loss(losses_dict: dict[str,List[torch.Tensor]], return_losses: bool = False) -> torch.Tensor:
         """ Computes the attend-and-excite loss using the maximum attention value for each token. """
         losses = []
+        loss_total = torch.Tensor([0.]).cuda()
         for i in range(0, len(losses_dict["max_loss"])):
             first_index = list(state.config.token_dict.keys())[i]
             token_info = state.config.token_dict[first_index]
@@ -322,13 +323,19 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
 
                 part4 = 100.*losses_dict["outside_loss"][i] 
 
-                losses.append(part3 + part4)
+                loss_item = part3 + part4
+                print("loss for " + str(i) + ": " + str(loss_item.item()))
+                losses.append(loss_item)
+                loss_total += loss_item
             # elif state.toRight:
             #     losses.append(max(0, 2*(15. - losses_dict["col"][i])/15.)) # loss for each token
             # else:
             #     losses.append(max(0, 2*(losses_dict["col"][i])/15.)) # loss for each token
-
-        loss = max(losses) # we only care about the token with max loss (TODO: potential optimization - we should care about all losses that are above the threshold)
+        loss = None
+        if state.use_loss_total:
+            loss = max(losses) # we only care about the token with max loss (TODO: potential optimization - we should care about all losses that are above the threshold)
+        else:
+            loss = loss_total
         if return_losses:
             return loss, losses
         else:
@@ -339,15 +346,15 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
         """ Update the latent according to the computed loss. """
         if state.optimizeDeepLatent:
             grad_cond = torch.autograd.grad(loss.requires_grad_(True), [state.deepFeatures], retain_graph=True)[0]
-            print("gradient size: " + str(grad_cond.abs().mean().item()))
-            print("gradient size: " + str(grad_cond.abs().sum().item()))
+            print("gradient size average: " + str(grad_cond.abs().mean().item()))
+            #print("gradient size sum: " + str(grad_cond.abs().sum().item()))
             # 3000, 100 produce similar results. both rather low quality. the gradient size is about a 100th of optimizing pixel space.
             # 25 is too weak. get robot on either size.
             state.deepFeatures = state.deepFeatures - step_size * grad_cond * 200
         else:
             grad_cond = torch.autograd.grad(loss.requires_grad_(True), [latents], retain_graph=True)[0]
-            print("gradient size: " + str(grad_cond.abs().mean().item()))
-            print("gradient size: " + str(grad_cond.abs().sum().item()))
+            print("gradient size average: " + str(grad_cond.abs().mean().item()))
+            #print("gradient size sum: " + str(grad_cond.abs().sum().item()))
             latents = latents - step_size * grad_cond
         return latents
 

@@ -3,11 +3,8 @@ cur_seed = None
 cur_time_step_iter = None
 sub_iteration = 0
 
-toCoordinate = True
-coor_X = 3.
-coor_Y = 4.
-toRight = True
 optimizeDeepLatent = False
+use_loss_total = True
 
 deepLatentRequiresGrad = True
 injectDeepFeatures = False
@@ -19,10 +16,6 @@ def get_name():
     name = ""
     for t in tags:
         name += str(t) + "_" + str(globals()[t]) + "_"
-    # if toCoordinate:
-    #     name += "toCoordinate_X_" + str(coor_X) + "_Y_" + str(coor_Y) + "_"
-    # else:
-    #     name += "toRight_" + str(toRight) + "_"
     return name
 
 class TurnOffRequiresGradDeepLatent(object):     

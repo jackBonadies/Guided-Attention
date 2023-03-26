@@ -6,7 +6,7 @@ import torch
 from PIL import Image
 
 from config import RunConfig
-from pipeline_attend_and_excite import AttendAndExcitePipeline
+from pipeline_guided_attention import AttendAndExcitePipeline
 from utils import ptp_utils, vis_utils, shared_state, helpers
 from utils.ptp_utils import AttentionStore
 
