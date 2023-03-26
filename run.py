@@ -80,7 +80,7 @@ def execute(config):
         tokens = config.stable.tokenizer(meta_info_item[0])['input_ids'][1:-1]
         indices = get_indices(tokenized_prompt, tokens)
         for indice in indices:
-            token_dict[indice] = {'word':config.stable.tokenizer.decode(tokenized_prompt[indice]), 'loss':meta_info_item[2]} # a tuple (x,y)
+            token_dict[indice] = {'word':config.stable.tokenizer.decode(tokenized_prompt[indice]), 'loss_type' : meta_info_item[1], 'loss':meta_info_item[2]}
     config.token_dict = token_dict
     images = []
     image_path = None

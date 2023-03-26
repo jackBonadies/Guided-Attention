@@ -23,12 +23,13 @@
 	<div id="editableDiv" class="editable" contenteditable="true"></div>
 	<button id="add_crosshair">Add Crosshair</button>
 	<button id="add_bounding_box">Add Bounding Box</button>
+    <button id="clear">Clear</button>
 	<button id="submit1">Submit</button>
-	<form id="executeFunctionForm" action="{{ url_for('execute_function') }}" method="post">
+	<!-- <form id="executeFunctionForm" action="{{ url_for('execute_function') }}" method="post">
 	
 	<button type="submit">Execute Python Function</button>
       <button type="submit">Execute Python Function</button>
-    </form>
+    </form> -->
 	<script>
 
 
@@ -46,6 +47,19 @@ function getUnusedColor()
         colorsCopy = colorsCopy.filter(item => item !== c)
     }
     return colorsCopy[0]
+}
+
+var clearBtn = document.getElementById("clear");
+clearBtn.addEventListener('click', clearAnnotations);
+
+function clearAnnotations()
+{
+    while (elements.length) 
+    { 
+        elements.pop(); 
+    }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    redrawCanvas()
 }
 
 let drawImage = false

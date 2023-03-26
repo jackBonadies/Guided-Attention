@@ -289,11 +289,19 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
         losses = []
         for i in range(0, len(losses_dict["max_loss"])):
             first_index = list(state.config.token_dict.keys())[i]
-            xy = state.config.token_dict[first_index]['loss']
+            token_info = state.config.token_dict[first_index]
+            
             #losses_dict["max_loss"][i]
-            if len(xy)==2: #coordinates
+            if token_info['loss_type'] == helpers.AnnotationType.COOR:
+                xy = token_info['loss']
                 part1 = max(0., 1.*(losses_dict["col"][i] - xy[0]*16).abs()/15.) #8.* caused serious artifacts when optimizing in pixel space
                 part2 = max(0., 4.*(losses_dict["row"][i] - xy[1]*16).abs()/15.) #1. -- way too weak...
+                losses.append(part1 + part2)
+            elif token_info['loss_type'] == helpers.AnnotationType.BOX:
+                rect = token_info['loss']
+                center = rect.get_center()
+                part1 = max(0., 1.*(losses_dict["col"][i] - center[0]*16).abs()/15.) #8.* caused serious artifacts when optimizing in pixel space
+                part2 = max(0., 4.*(losses_dict["row"][i] - center[1]*16).abs()/15.) #1. -- way too weak...
                 losses.append(part1 + part2)
             # elif state.toRight:
             #     losses.append(max(0, 2*(15. - losses_dict["col"][i])/15.)) # loss for each token

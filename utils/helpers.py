@@ -1,5 +1,24 @@
 import utils.shared_state as state
 from PIL import Image, ImageDraw, ImageFont
+from enum import Enum
+
+class AnnotationType(Enum):
+    COOR = 0
+    BOX = 1
+    KEYWORD = 2
+
+class Rect():
+    def __init__(self, x, y, width, height):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    def right(self):
+        return self.x + self.width
+    def bottom(self):
+        return self.y + self.height
+    def center(self):
+        return ((self.x + self.width / 2.0), (self.y + self.height / 2.0))
 
 def add_word(prompt, token):
     if len(prompt) == 0 or prompt[-1] == ' ':
@@ -33,7 +52,13 @@ def parse_prompt(meta_prompt):
             if(len(numbers) == 2):
                 x = float(numbers[0])
                 y = float(numbers[1])
-                meta_info.append((token, "Coordinate", (x,y)))
+                meta_info.append((token, AnnotationType.COOR, (x,y)))
+            elif(len(numbers) == 4):
+                x = float(numbers[0])
+                y = float(numbers[1])
+                width = float(numbers[2])
+                height = float(numbers[3])
+                meta_info.append((token, AnnotationType.BOX, Rect(x, y, width, height)))
             else:
                 pass
             prompt = add_word(prompt,token)
