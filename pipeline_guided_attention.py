@@ -319,8 +319,8 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
                 # part1 = max(0., 1.*(losses_dict["col"][i] - center[0]*16).abs()/15.) #8.* caused serious artifacts when optimizing in pixel space
                 # part2 = max(0., 4.*(losses_dict["row"][i] - center[1]*16).abs()/15.) #1. -- way too weak...
 
+                #addition *10 gave good attention maps but OOD results.
                 part3 = 10.*losses_dict["inside_loss"][i] 
-
                 part4 = 100.*losses_dict["outside_loss"][i] 
 
                 loss_item = part3 + part4
@@ -355,7 +355,7 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
             grad_cond = torch.autograd.grad(loss.requires_grad_(True), [latents], retain_graph=True)[0]
             print("gradient size average: " + str(grad_cond.abs().mean().item()))
             #print("gradient size sum: " + str(grad_cond.abs().sum().item()))
-            latents = latents - step_size * grad_cond
+            latents = latents - step_size * grad_cond #remove
         return latents
 
     def _perform_iterative_refinement_step(self,
@@ -856,7 +856,7 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
                                 t=t,
                                 attention_res=attention_res,
                                 smooth_attentions=smooth_attentions,
-                                max_refinement_steps=20, #
+                                max_refinement_steps=25, #
                                 sigma=sigma,
                                 kernel_size=kernel_size,
                                 normalize_eot=sd_2_1)
@@ -892,7 +892,7 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
                     latents = ddim_output.prev_sample
                     if state.config.diagnostic_level > 1:
                         self.save_image(latents, "xt") #looks just like pred but with added noise....
-                    if state.config.diagnostic_level > 0:
+                    if state.config.diagnostic_level > 0 or state.cur_time_step_iter in state.always_save_iter:
                         self.save_image(ddim_output.pred_original_sample, "pred")
 
                 # call the callback, if provided
@@ -939,5 +939,5 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
         fname = fname.replace('[','_').replace(']','_').replace(':','_').replace('.','_') + ".png"
         prompt_output_path = state.config.output_path / state.config.prompt / str(state.cur_seed)
         prompt_output_path.mkdir(exist_ok=True, parents=True)
-        helpers.annotate_image(image)
+        helpers.annotate_image(image[0])
         image[0].save(prompt_output_path / fname)

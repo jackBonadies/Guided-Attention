@@ -1,6 +1,7 @@
 config = None
 cur_seed = None
 cur_time_step_iter = None
+always_save_iter = [24, 25, 26]
 sub_iteration = 0
 
 optimizeDeepLatent = False

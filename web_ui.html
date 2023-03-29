@@ -3,16 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Canvas Crosshair</title>
+    <title>Guided Attention</title>
 	    <style>
         .editable {
-            width: 100%;
+            width: calc(100% - 20px);
             min-height: 100px;
             border: 1px solid #000;
             padding: 8px;
             font-family: Arial, sans-serif;
             font-size: 14px;
         }
+
+    .container {
+      position: relative;
+      display: inline-block;
+    }
+    .placeholder {
+      position: absolute;
+      pointer-events: none;
+      color: #aaa;
+    }
+
+    [contenteditable][placeholder]:empty:before {
+    content: attr(placeholder);
+    position: absolute;
+    color: gray;
+    background-color: transparent;
+    }
+    
+
     </style>
 	
 </head>
@@ -20,17 +39,90 @@
     
     <canvas id="myCanvas" width="512" height="512" style="border:1px solid #000000;"></canvas>
     <image id="outImage"></image>
-	<div id="editableDiv" class="editable" contenteditable="true"></div>
-	<button id="add_crosshair">Add Crosshair</button>
+	<div id="editableDiv" class="editable" contenteditable="true" placeholder="Type prompt here..." oninput="if(this.innerHTML.trim()==='<br>')this.innerHTML=''"></div>
+        
+    <!-- <span class="placeholder">Type your text here...</span> -->
+    <div style="margin-top:6px">
+    <button id="add_crosshair">Add Crosshair</button>
 	<button id="add_bounding_box">Add Bounding Box</button>
-    <button id="clear">Clear</button>
-	<button id="submit1">Submit</button>
+    <button id="clear">Clear Annotations</button>
+	<button id="submit1" style="margin-left:12px">Submit</button>
+    </div>
 	<!-- <form id="executeFunctionForm" action="{{ url_for('execute_function') }}" method="post">
 	
 	<button type="submit">Execute Python Function</button>
       <button type="submit">Execute Python Function</button>
     </form> -->
 	<script>
+
+var clearBtn = document.getElementById("clear");
+const addCrosshair = document.getElementById('add_crosshair');
+const addBoundingBox = document.getElementById('add_bounding_box');
+
+
+clearBtn.addEventListener('click', clearAnnotations);
+addCrosshair.addEventListener("click", addCrosshairClick);
+addBoundingBox.addEventListener("click", addBoundingBoxClick);
+
+document.addEventListener('selectionchange', setButtonStates)
+
+const tooltip = "Select word(s) in prompt to begin setting annotations."
+
+
+function setButtonStates()
+{
+    if(hasAnnotations())
+    {
+        clearBtn.disabled = false
+        clearBtn.setAttribute("title", "")
+    }
+    else
+    {
+        clearBtn.disabled = true
+        clearBtn.setAttribute("title", "No annotations to clear.")
+    }
+    
+    if(isOurTextSelected())
+    {
+        addCrosshair.disabled = false
+        addBoundingBox.disabled = false
+        addCrosshair.setAttribute("title", "")
+        addBoundingBox.setAttribute("title", "")
+    }
+    else
+    {
+        addCrosshair.disabled = true
+        addBoundingBox.disabled = true
+        addCrosshair.setAttribute("title", tooltip)
+        addBoundingBox.setAttribute("title", tooltip)
+    }
+
+}
+
+function isOurTextSelected()
+{
+    const selection = window.getSelection();
+    const selectedText = selection.toString();
+    const anchorNode = selection.anchorNode;
+    let selectedInDiv = false;
+    if (anchorNode && anchorNode.parentElement.closest("[contenteditable]"))
+    {
+        if (selectedText.length > 0)
+        {
+            selectedInDiv = true;
+        }
+    }
+    return selectedInDiv;
+}
+
+function hasAnnotations()
+{
+    if (elements.length > 0 || drawImage)
+    {
+        return true;
+    }
+    return false;
+}
 
 
 
@@ -49,8 +141,6 @@ function getUnusedColor()
     return colorsCopy[0]
 }
 
-var clearBtn = document.getElementById("clear");
-clearBtn.addEventListener('click', clearAnnotations);
 
 function clearAnnotations()
 {
@@ -60,6 +150,9 @@ function clearAnnotations()
     }
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     redrawCanvas()
+    editableDiv.querySelectorAll('span').forEach(spanElmt => {
+        spanElmt.outerHTML = spanElmt.innerHTML;
+    });
 }
 
 let drawImage = false
@@ -95,6 +188,8 @@ function redrawCanvas() {
 		
 		// <!-- } -->
     }
+    
+    setButtonStates()
 }
 
 const but1 = document.getElementById('submit1');
@@ -416,6 +511,7 @@ canvas.addEventListener('mouseup', function(event) {
         [startX, startY, x, y] = startXyTopLeft(startX, startY, x, y)
         let b = new BoundingBox(startX, startY, x-startX, y-startY, new Info(text_cur, color_cur))
 		elements.push(b)
+        setButtonStates()
 	}
 	addingBoundingBox = false;
     isDrawing = false;
@@ -454,18 +550,14 @@ canvas.addEventListener('click', function(event) {
     const y = event.clientY - rect.top;
     let b = new Crosshair(x, y, new Info(text_cur, color_cur))
 	elements.push(b)
+    setButtonStates()
     // Clear the canvas before drawing the new crosshair
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     redrawCanvas();
     addingCrosshair = false;
 });
 
-const addCrosshair = document.getElementById('add_crosshair');
-addCrosshair.addEventListener("click", addCrosshairClick);
 
-
-const addBoundingBox = document.getElementById('add_bounding_box');
-addBoundingBox.addEventListener("click", addBoundingBoxClick);
 
 
 
@@ -479,16 +571,24 @@ function addBoundingBoxClick() {
     getSelectedText()
 }
 
-
-
-// Draw crosshair at the center of the canvas
-const centerX = canvas.width / 2;
-const centerY = canvas.height / 2;
-drawCrosshair(centerX, centerY);
-
 const editableDiv = document.getElementById('editableDiv');
 
 editableDiv.addEventListener('input', function() {
+    console.log("input here");
+    // <!-- const words = editableDiv.innerText.split(' '); -->
+    // <!-- let colorfulHTML = ''; -->
+
+    // <!-- for (const word of words) { -->
+    //     <!-- const color = getColorForWord(word); -->
+    //     <!-- colorfulHTML += `<span style="color:${color};">${word}</span> `; -->
+    // <!-- } -->
+
+    // <!-- editableDiv.innerHTML = colorfulHTML; -->
+    // <!-- placeCaretAtEnd(editableDiv); -->
+});
+
+editableDiv.addEventListener('onclick', function() {
+    console.log("onclick here");
     // <!-- const words = editableDiv.innerText.split(' '); -->
     // <!-- let colorfulHTML = ''; -->
 
@@ -530,6 +630,25 @@ function placeCaretAtEnd(el) {
         textRange.select();
     }
 }
+
+// const placeholder = document.querySelector('.placeholder');
+
+// editableDiv.addEventListener('input', () => {
+//     placeholder.style.display = editableDiv.textContent.trim() === '' ? '' : 'none';
+// });
+
+// editableDiv.addEventListener('focus', () => {
+//     placeholder.style.color = '#ccc';
+// });
+
+// editableDiv.addEventListener('blur', () => {
+//     placeholder.style.color = '#aaa';
+// });
+
+// placeholder.style.display = editableDiv.textContent.trim() === '' ? '' : 'none';
+
+
+setButtonStates()
 
 	</script>
 </body>
