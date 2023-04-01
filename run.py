@@ -85,21 +85,25 @@ def execute(config):
     images = []
     image_path = None
     for seed in config.seeds:
-        shared_state.cur_seed = seed
-        print(f"Seed: {seed}")
-        g = torch.Generator('cuda').manual_seed(seed)
-        controller = AttentionStore()
-        image = run_on_prompt(prompt=config.prompt,
-                            model=config.stable,
-                            controller=controller,
-                            seed=g,
-                            config=config)
-        prompt_output_path = config.output_path / config.prompt
-        prompt_output_path.mkdir(exist_ok=True, parents=True)
-        image_path = prompt_output_path / f'{seed}.png'
-        helpers.annotate_image(image)
-        image.save(prompt_output_path / f'{seed}.png')
-        images.append(image)
+        for hyperParamState in shared_state.hyperParameterDicts:
+            shared_state.curHyperParams = hyperParamState
+            config.thresholds = shared_state.curHyperParams["thresholds"]
+            shared_state.cur_seed = seed
+            print(f"Seed: {seed}")
+            g = torch.Generator('cuda').manual_seed(seed)
+            controller = AttentionStore()
+            image = run_on_prompt(prompt=config.prompt,
+                                model=config.stable,
+                                controller=controller,
+                                seed=g,
+                                config=config)
+            prompt_output_path = config.output_path / config.prompt
+            prompt_output_path.mkdir(exist_ok=True, parents=True)
+            image_path = prompt_output_path / f'{seed}.png'
+            helpers.annotate_image(image)
+            name1 = helpers.dictToString(shared_state.curHyperParams)
+            image.save(prompt_output_path / f'{seed}{name1}.png')
+            images.append(image)
 
     # save a grid of results across all seeds
     joined_image = vis_utils.get_image_grid(images)

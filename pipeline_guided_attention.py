@@ -229,9 +229,12 @@ class GuidedAttention(StableDiffusionPipeline):
         inside_loss_list = []
         outside_loss_list = []
 
-        saveAll = True
-        if saveAll:
+        if state.config.save_all_maps:
             for index_i in range(0,len(self.tokenizer(state.config.prompt)['input_ids'][1:-1])):
+                image = attention_for_text[:, :, index_i] #16, 16
+                self.save_viridis(image, "_attnmap_" + self.get_token(index_i + 1))
+        else:
+            for index_i in indices_to_alter:
                 image = attention_for_text[:, :, index_i] #16, 16
                 self.save_viridis(image, "_attnmap_" + self.get_token(index_i + 1))
 
@@ -359,8 +362,8 @@ class GuidedAttention(StableDiffusionPipeline):
                 # part2 = max(0., 4.*(losses_dict["row"][i] - center[1]*16).abs()/15.) #1. -- way too weak...
 
                 #addition *10 gave good attention maps but OOD results.
-                part3 = 10.*losses_dict["inside_loss"][i] 
-                part4 = 100.*losses_dict["outside_loss"][i] 
+                part3 = state.curHyperParams["inside_loss_scale"]*losses_dict["inside_loss"][i] 
+                part4 = state.curHyperParams["outside_loss_scale"]*losses_dict["outside_loss"][i] 
 
                 loss_item = part3 + part4
                 print("loss for " + str(token_info['word']) + ": " + str(loss_item.item()))
@@ -972,14 +975,15 @@ class GuidedAttention(StableDiffusionPipeline):
                     return False
         return True
         
-
+    def get_innermost_folder(self):
+        return str(state.cur_seed) + helpers.dictToString(state.curHyperParams)
 
     def save_viridis(self, tensor1, tag):
         with torch.no_grad():
             x = tensor1 - tensor1.min()
             x = x / x.max()
             fname = tag + "_" + helpers.get_meta_prompt_clean() + state.get_name() + "_subiter_" + "{:02d}".format(state.sub_iteration) + ".png"
-            prompt_output_path = state.config.output_path / state.config.prompt / str(state.cur_seed)
+            prompt_output_path = state.config.output_path / state.config.prompt / self.get_innermost_folder()
             prompt_output_path.mkdir(exist_ok=True, parents=True)
             plt.imsave(prompt_output_path / fname, x.detach().cpu())
 
@@ -992,7 +996,7 @@ class GuidedAttention(StableDiffusionPipeline):
         #fname = state.config.prompt + "_iter" + str(state.cur_time_step_iter) + "_" + tag + "_seed" + str(state.cur_seed) + "_toRight" + str(state.toRight) + ".png"
         fname = helpers.get_meta_prompt_clean() + state.get_name() + "_" + tag
         fname = fname.replace('[','_').replace(']','_').replace(':','_').replace('.','_') + ".png"
-        prompt_output_path = state.config.output_path / state.config.prompt / str(state.cur_seed)
+        prompt_output_path = state.config.output_path / state.config.prompt / self.get_innermost_folder()
         prompt_output_path.mkdir(exist_ok=True, parents=True)
         helpers.annotate_image(image[0])
         image[0].save(prompt_output_path / fname)

@@ -21,6 +21,7 @@ def add_word(prompt, token):
 def execute_function():
     meta_prompt = request.json['variable1']
     shared_state.config.meta_prompt = meta_prompt
+    print(meta_prompt)
     image_path = execute(shared_state.config)
     shutil.copyfile(str(image_path), "static/output.png")
     response = {

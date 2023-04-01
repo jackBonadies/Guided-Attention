@@ -107,6 +107,7 @@ def annotate_image(image):
 
 #bounding box helper functions...
 sample_center = True
+shrink_box = True
 
 def get_corresponding_weight(x):
     xp = [0, .333, .666, 1.0]
@@ -118,8 +119,10 @@ def inside_box(cur_x, cur_y, rect):
     if sample_center:
         cur_x += 0.5
         cur_y += 0.5
-    if cur_x >= rect.x and cur_x <= rect.x + rect.width:
-        if cur_y >= rect.y and cur_y <= rect.y + rect.height:
+    offsetX = state.curHyperParams["shrink_factor"] * rect.width
+    offsetY = state.curHyperParams["shrink_factor"] * rect.height
+    if cur_x >= (rect.x + offsetX) and cur_x <= (rect.x + rect.width - offsetX):
+        if cur_y >= (rect.y + offsetY) and cur_y <= (rect.y + rect.height - offsetY):
             return True
     return False
 
@@ -195,21 +198,45 @@ def calculate_bounding_box_losses(r, imageSoftmax):
                 weights[ii,jj] /= sum_inside
             else:
                 weights[ii,jj] /= sum_outside
-
-    # loss
     loss_inside = tr.Tensor([0]).cuda()
     loss_outside = tr.Tensor([0]).cuda()
 
-    at_most = 1.0 / num_inside #since these are softmaxed. cannot expect every value inside a 10x10 region to be above .5 say.. at most they could each be .01
-    
-    min_loss = tr.Tensor([0]).cuda()
-    min_attn = tr.Tensor([0]).cuda()
-    for ii in range(0, 16):
-        for jj in range(0, 16):
-            if inside_box(jj, ii, r):
-                loss_item = 2.*max(min_loss, at_most-imageSoftmax[ii, jj])
-                loss_inside += weights[ii,jj]*loss_item
-            else:
-                loss_item = max(min_loss, imageSoftmax[ii, jj] - min_attn) #no problem if less than .02
-                loss_outside += weights[ii,jj]*loss_item
-    return (loss_inside, loss_outside)
+    if state.curHyperParams["strict"]:
+        # loss
+        at_most = 1.0 / num_inside #since these are softmaxed. cannot expect every value inside a 10x10 region to be above .5 say.. at most they could each be .01
+        
+        min_loss = tr.Tensor([0]).cuda()
+        min_attn = tr.Tensor([0]).cuda()
+        for ii in range(0, 16):
+            for jj in range(0, 16):
+                if inside_box(jj, ii, r):
+                    loss_item = 2.*max(min_loss, at_most-imageSoftmax[ii, jj])
+                    loss_inside += weights[ii,jj]*loss_item
+                else:
+                    loss_item = max(min_loss, imageSoftmax[ii, jj] - min_attn) #no problem if less than .02
+                    loss_outside += weights[ii,jj]*loss_item
+        return (loss_inside, loss_outside)
+    else:
+        at_most = 1.0 / num_inside 
+        attn_sum_inside = tr.Tensor([0]).cuda()
+        attn_sum_outside = tr.Tensor([0]).cuda()
+        for ii in range(0, 16):
+            for jj in range(0, 16):
+                if inside_box(jj, ii, r):
+                    attn_sum_inside += imageSoftmax[ii, jj]
+                else:
+                    attn_sum_outside += imageSoftmax[ii, jj]
+        loss_inside = 1. - attn_sum_inside # we want inside to be 1
+        loss_outside = attn_sum_outside # we want outside to be 0
+        return (loss_inside, loss_outside)
+
+
+
+def dictToString(dict1):
+    if type(dict1) is dict:
+        str1 = ""
+        for item in dict1.items():
+            str1 += "_" + str(item[0]) + "_" + dictToString(item[1])
+        return str1
+    else:
+        return str(dict1)
