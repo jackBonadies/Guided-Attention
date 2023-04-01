@@ -24,11 +24,22 @@
       color: #aaa;
     }
 
+    #inputLabel
+    {
+        font-size: 1em;
+        margin-bottom: 0px;
+        padding-bottom: 0px
+    }
+
     [contenteditable][placeholder]:empty:before {
     content: attr(placeholder);
     position: absolute;
     color: gray;
     background-color: transparent;
+    }
+
+    .horiz {
+        display: flex;
     }
     
 
@@ -36,8 +47,17 @@
 	
 </head>
 <body>
-    
-    <canvas id="myCanvas" width="512" height="512" style="border:1px solid #000000;"></canvas>
+
+    <div class="horiz">
+        <div>
+            <p id="inputLabel">Input</p>
+            <canvas id="myCanvas" width="512" height="512" style="border:1px solid #000000;"></canvas>
+        </div>
+        <div style="margin-left:20px;">
+            <p id="inputLabel">Output</p>
+            <canvas id="outCanvas" width="512" height="512" style="border:1px solid #000000;"></canvas>
+        </div>
+    </div>
     <image id="outImage"></image>
 	<div id="editableDiv" class="editable" contenteditable="true" placeholder="Type prompt here..." oninput="if(this.innerHTML.trim()==='<br>')this.innerHTML=''"></div>
         
@@ -159,6 +179,7 @@ let drawImage = false
 var img = document.getElementById("outImage");
 
 img.style.visibility = "hidden"; 
+img.style.display = "none";
 //drawImage = true
 
 colors = ['Blue', 'Green', 'OrangeRed', 'Yellow']
@@ -168,7 +189,8 @@ function redrawCanvas() {
     if (drawImage)
     {
         var img = document.getElementById("outImage");
-        ctx.drawImage(img, 0, 0)
+        outCtx.drawImage(img, 0, 0)
+        //ctx.drawImage(img, 0, 0)
     }
 
 	for(var i=0;i<elements.length;i++)
@@ -247,6 +269,13 @@ const canvas = document.getElementById('myCanvas');
 const canvasWidth = canvas.width
 const canvasHeight = canvas.height
 const ctx = canvas.getContext('2d');
+
+const outCanvas = document.getElementById('outCanvas');
+const outCanvasWidth = canvas.width
+const outCanvasHeight = canvas.height
+const outCtx = outCanvas.getContext('2d');
+
+
 const crosshairSize = 20;
 
 

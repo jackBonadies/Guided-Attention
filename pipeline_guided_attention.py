@@ -228,9 +228,16 @@ class GuidedAttention(StableDiffusionPipeline):
         row_list = []
         inside_loss_list = []
         outside_loss_list = []
+
+        saveAll = True
+        if saveAll:
+            for index_i in range(0,len(self.tokenizer(state.config.prompt)['input_ids'][1:-1])):
+                image = attention_for_text[:, :, index_i] #16, 16
+                self.save_viridis(image, "_attnmap_" + self.get_token(index_i + 1))
+
         for i in indices_to_alter:
             image = attention_for_text[:, :, i] #16, 16
-            self.save_viridis(image, "_attnmap_" + self.get_token(i + 1))
+            #self.save_viridis(image, "_attnmap_" + self.get_token(i + 1))
             if smooth_attentions:
                 smoothing = GaussianSmoothing(channels=1, kernel_size=kernel_size, sigma=sigma, dim=2).cuda()
                 input = F.pad(image.unsqueeze(0).unsqueeze(0), (1, 1, 1, 1), mode='reflect')
@@ -802,6 +809,8 @@ class GuidedAttention(StableDiffusionPipeline):
             prompt_embeds=prompt_embeds,
             negative_prompt_embeds=negative_prompt_embeds,
         )
+        state.always_save_iter = [list(thresholds)[-1] - 1, list(thresholds)[-1], list(thresholds)[-1] + 1]
+
         self.scheduler = DDIMScheduler.from_config(self.scheduler.config)
         # 4. Prepare timesteps #50 steps default
         self.scheduler.set_timesteps(num_inference_steps, device=device)
@@ -969,7 +978,7 @@ class GuidedAttention(StableDiffusionPipeline):
         with torch.no_grad():
             x = tensor1 - tensor1.min()
             x = x / x.max()
-            fname = tag + "_" + helpers.get_meta_prompt_clean() + state.get_name() + "_subiter_" + str(state.sub_iteration) + ".png"
+            fname = tag + "_" + helpers.get_meta_prompt_clean() + state.get_name() + "_subiter_" + "{:02d}".format(state.sub_iteration) + ".png"
             prompt_output_path = state.config.output_path / state.config.prompt / str(state.cur_seed)
             prompt_output_path.mkdir(exist_ok=True, parents=True)
             plt.imsave(prompt_output_path / fname, x.detach().cpu())

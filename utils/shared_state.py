@@ -16,8 +16,14 @@ tags = ["cur_seed", "cur_time_step_iter", "optimizeDeepLatent"]
 def get_name():
     name = ""
     for t in tags:
-        name += str(t) + "_" + str(globals()[t]) + "_"
+        name += str(t) + "_" + to_str(globals()[t]) + "_"
     return name
+
+def to_str(t):
+    if type(t) is int:
+        return "{:02d}".format(t)
+    else:
+        return str(t)
 
 class TurnOffRequiresGradDeepLatent(object):     
     def __enter__(self):
