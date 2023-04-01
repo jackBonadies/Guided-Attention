@@ -6,7 +6,7 @@ import torch
 from PIL import Image
 
 from config import RunConfig
-from pipeline_guided_attention import AttendAndExcitePipeline
+from pipeline_guided_attention import GuidedAttention
 from utils import ptp_utils, vis_utils, shared_state, helpers
 from utils.ptp_utils import AttentionStore
 
@@ -24,7 +24,7 @@ def load_model(config: RunConfig):
     revision = None
     if config.half_precision:
         revision = "fp16"
-    stable = AttendAndExcitePipeline.from_pretrained(stable_diffusion_version, revision=revision).to(device)
+    stable = GuidedAttention.from_pretrained(stable_diffusion_version, revision=revision).to(device)
     return stable
 
 
@@ -41,7 +41,7 @@ def get_indices_to_alter(stable, prompt: str) -> List[int]:
 
 
 def run_on_prompt(prompt: List[str],
-                  model: AttendAndExcitePipeline,
+                  model: GuidedAttention,
                   controller: AttentionStore,
                   seed: torch.Generator,
                   config: RunConfig) -> Image.Image:
@@ -80,7 +80,7 @@ def execute(config):
         tokens = config.stable.tokenizer(meta_info_item[0])['input_ids'][1:-1]
         indices = get_indices(tokenized_prompt, tokens)
         for indice in indices:
-            token_dict[indice] = {'word':config.stable.tokenizer.decode(tokenized_prompt[indice]), 'loss_type' : meta_info_item[1], 'loss':meta_info_item[2]}
+            token_dict[indice] = {'word':config.stable.tokenizer.decode(tokenized_prompt[indice]), 'loss_type' : meta_info_item[1], 'loss' : meta_info_item[2], 'subprompt' : meta_info_item[0]}
     config.token_dict = token_dict
     images = []
     image_path = None

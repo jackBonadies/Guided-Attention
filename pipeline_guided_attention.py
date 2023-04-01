@@ -34,7 +34,7 @@ from utils.ptp_utils import AttentionStore, aggregate_attention
 
 logger = logging.get_logger(__name__)
 
-class AttendAndExcitePipeline(StableDiffusionPipeline):
+class GuidedAttention(StableDiffusionPipeline):
     r"""
     Pipeline for text-to-image generation using Stable Diffusion.
     This model inherits from [`DiffusionPipeline`]. Check the superclass documentation for the generic methods the
@@ -296,12 +296,43 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
             kernel_size=kernel_size,
             normalize_eot=normalize_eot)
         return losses_dict
+    
+
+    
+    @staticmethod
+    def group_losses_by_sumprompt(losses):
+
+        loss_total = torch.Tensor([0.]).cuda()
+
+        subprompt_losses = {}
+        final_losses = {}
+        for loss_item in losses: # per token
+            sub_prompt = state.config.token_dict[loss_item[0]]['subprompt']
+            if sub_prompt in subprompt_losses:
+                subprompt_losses[sub_prompt].append(loss_item)
+            else:
+                subprompt_losses[sub_prompt] = [loss_item]
+
+        #average for subprompt, sum between subprompts
+        for item_ in subprompt_losses.items():
+            val = item_[1]
+            cnt = 0
+            totals = torch.Tensor([0.]).cuda()
+            for k in range(0, len(val)):
+                cnt += 1
+                totals += val[k][1]
+            if state.config.sub_prompt_avg_within:
+                loss_total += totals / cnt
+            else:
+                loss_total += totals
+            final_losses[item_[0]] = loss_total
+        return loss_total, final_losses
 
     @staticmethod
     def _compute_loss(losses_dict: dict[str,List[torch.Tensor]], return_losses: bool = False) -> torch.Tensor:
         """ Computes the attend-and-excite loss using the maximum attention value for each token. """
         losses = []
-        loss_total = torch.Tensor([0.]).cuda()
+        
         for i in range(0, len(losses_dict["max_loss"])):
             first_index = list(state.config.token_dict.keys())[i]
             token_info = state.config.token_dict[first_index]
@@ -311,7 +342,8 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
                 xy = token_info['loss']
                 part1 = max(0., 1.*(losses_dict["col"][i] - xy[0]*16).abs()/15.) #8.* caused serious artifacts when optimizing in pixel space
                 part2 = max(0., 4.*(losses_dict["row"][i] - xy[1]*16).abs()/15.) #1. -- way too weak...
-                losses.append(part1 + part2)
+                loss_item = part1 + part2
+                losses.append((first_index,loss_item))
             elif token_info['loss_type'] == helpers.AnnotationType.BOX:
                 rect = token_info['loss']
                 center = rect.center()
@@ -324,22 +356,20 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
                 part4 = 100.*losses_dict["outside_loss"][i] 
 
                 loss_item = part3 + part4
-                print("loss for " + str(i) + ": " + str(loss_item.item()))
-                losses.append(loss_item)
-                loss_total += loss_item
+                print("loss for " + str(token_info['word']) + ": " + str(loss_item.item()))
+                losses.append((first_index,loss_item))
+                #loss_total += loss_item
             # elif state.toRight:
             #     losses.append(max(0, 2*(15. - losses_dict["col"][i])/15.)) # loss for each token
             # else:
             #     losses.append(max(0, 2*(losses_dict["col"][i])/15.)) # loss for each token
-        loss = None
-        if state.use_loss_total:
-            loss = max(losses) # we only care about the token with max loss (TODO: potential optimization - we should care about all losses that are above the threshold)
-        else:
-            loss = loss_total
-        if return_losses:
-            return loss, losses
-        else:
-            return loss
+        #loss = None
+            # aggregate losses by subprompt
+        
+        loss, _ = GuidedAttention.group_losses_by_sumprompt(losses)
+        return loss, losses
+    
+
 
     @staticmethod
     def _update_latent(latents: torch.Tensor, loss: torch.Tensor, step_size: float) -> torch.Tensor:
@@ -434,19 +464,25 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
                     noise_pred_uncond = self.unet(latents, t, encoder_hidden_states=text_embeddings[0].unsqueeze(0)).sample
                     noise_pred_text = self.unet(latents, t, encoder_hidden_states=text_embeddings[1].unsqueeze(0)).sample
 
-            try:
-                low_token = np.argmax([l.item() if type(l) != int else l for l in losses])
-            except Exception as e:
-                print(e)  # catch edge case :)
-                low_token = np.argmax(losses)
+
+            #TODO DIAGNOSTIC INFO
+
+            #token_with_max_loss = 
+            # try:
+            #     low_token = np.argmax([l.item() if type(l) != int else l for l in losses])
+            # except Exception as e:
+            #     print(e)  # catch edge case :)
+            #     for i in range(0, len(losses)):
+            #         losses[i] = (losses[i][0], losses[i][1].detach().cpu().numpy())
+            #     low_token = np.argmax(losses)
 
             #TODO multi token
             # low_word = self.tokenizer.decode(text_input.input_ids[0][indices_to_alter[low_token]])
             # print(f'\t Try {iteration}. {low_word} has a max attention of {losses_dict["max_loss"][low_token]}')
             # print(f'\t Try {iteration}. {low_word} has a has centroid of {losses_dict["col"][low_token]}')
             if iteration >= max_refinement_steps:
-                print(f'\t Exceeded max number of iterations ({max_refinement_steps})! '
-                      f'Finished with a max attention of {losses_dict["max_loss"][low_token]}')
+                # print(f'\t Exceeded max number of iterations ({max_refinement_steps})! '
+                #       f'Finished with a max attention of {losses_dict["max_loss"][low_token]}')
                 break
 
         # Run one more time but don't compute gradients and update the latents.
@@ -838,10 +874,10 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
 
                     if not run_standard_sd:
 
-                        loss = self._compute_loss(losses_dict=max_attention_per_index)
+                        loss, losses = self._compute_loss(losses_dict=max_attention_per_index)
 
                         # If this is an iterative refinement step, verify we have reached the desired threshold for all
-                        if i in thresholds.keys() and loss > 1. - thresholds[i]:
+                        if not self.meets_threshold(i, thresholds, losses):
                             del noise_pred_text
                             torch.cuda.empty_cache()
                             # here we return the new optimized latent
@@ -863,7 +899,7 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
 
                         # Perform gradient update
                         if i < max_iter_to_alter:
-                            loss = self._compute_loss(losses_dict=max_attention_per_index)
+                            loss, losses = self._compute_loss(losses_dict=max_attention_per_index)
                             if loss != 0:
                                 latents = self._update_latent(latents=latents, loss=loss,  #TODO: non iterative version fails
                                                               step_size=scale_factor * np.sqrt(scale_range[i]))
@@ -916,7 +952,17 @@ class AttendAndExcitePipeline(StableDiffusionPipeline):
 
         return StableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept)
     
-
+    def meets_threshold(self, i, thresholds, losses):
+        _, subprompt_loss = GuidedAttention.group_losses_by_sumprompt(losses) #dict [subprompt] -> loss
+        if i not in thresholds:
+            return True
+        else:
+            # if each meets the threshold
+            for item in subprompt_loss.items(): #list of tuples (tokenIndex, loss)
+                if item[1] > 1 - thresholds[i]:
+                    return False
+        return True
+        
 
 
     def save_viridis(self, tensor1, tag):

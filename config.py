@@ -24,7 +24,7 @@ class RunConfig:
     # Whether to run standard SD without any guided attention
     run_standard_sd: bool = False
     # Dictionary defining the iterations and desired thresholds to apply iterative latent refinement in
-    thresholds: Dict[int, float] = field(default_factory=lambda: {0: 0.05, 10: 0.5, 20: 0.8})
+    thresholds: Dict[int, float] = field(default_factory=lambda: {0: 0.1, 10: 0.5, 20: 0.8})
     # Scale factor for updating the denoised latent z_t
     scale_factor: int = 20
     # Start and end values used for scaling the scale factor - decays linearly with the denoising timestep
@@ -45,6 +45,8 @@ class RunConfig:
     diagnostic_level: int = 0
     #annotate
     annotate: bool = False
+
+    sub_prompt_avg_within: bool = False
 
     def __post_init__(self):
         self.output_path.mkdir(exist_ok=True, parents=True)
