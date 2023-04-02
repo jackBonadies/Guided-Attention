@@ -474,25 +474,8 @@ class GuidedAttention(StableDiffusionPipeline):
                     noise_pred_uncond = self.unet(latents, t, encoder_hidden_states=text_embeddings[0].unsqueeze(0)).sample
                     noise_pred_text = self.unet(latents, t, encoder_hidden_states=text_embeddings[1].unsqueeze(0)).sample
 
-
-            #TODO DIAGNOSTIC INFO
-
-            #token_with_max_loss = 
-            # try:
-            #     low_token = np.argmax([l.item() if type(l) != int else l for l in losses])
-            # except Exception as e:
-            #     print(e)  # catch edge case :)
-            #     for i in range(0, len(losses)):
-            #         losses[i] = (losses[i][0], losses[i][1].detach().cpu().numpy())
-            #     low_token = np.argmax(losses)
-
-            #TODO multi token
-            # low_word = self.tokenizer.decode(text_input.input_ids[0][indices_to_alter[low_token]])
-            # print(f'\t Try {iteration}. {low_word} has a max attention of {losses_dict["max_loss"][low_token]}')
-            # print(f'\t Try {iteration}. {low_word} has a has centroid of {losses_dict["col"][low_token]}')
             if iteration >= max_refinement_steps:
-                # print(f'\t Exceeded max number of iterations ({max_refinement_steps})! '
-                #       f'Finished with a max attention of {losses_dict["max_loss"][low_token]}')
+                print(f'\t Exceeded max number of iterations ({max_refinement_steps})! ')
                 break
 
         # Run one more time but don't compute gradients and update the latents.
@@ -983,7 +966,7 @@ class GuidedAttention(StableDiffusionPipeline):
             x = tensor1 - tensor1.min()
             x = x / x.max()
             fname = tag + "_" + helpers.get_meta_prompt_clean() + state.get_name() + "_subiter_" + "{:02d}".format(state.sub_iteration) + ".png"
-            prompt_output_path = state.config.output_path / state.config.prompt / self.get_innermost_folder()
+            prompt_output_path = state.config.output_path / helpers.get_inner_folder_name() / self.get_innermost_folder()
             prompt_output_path.mkdir(exist_ok=True, parents=True)
             plt.imsave(prompt_output_path / fname, x.detach().cpu())
 
@@ -996,7 +979,9 @@ class GuidedAttention(StableDiffusionPipeline):
         #fname = state.config.prompt + "_iter" + str(state.cur_time_step_iter) + "_" + tag + "_seed" + str(state.cur_seed) + "_toRight" + str(state.toRight) + ".png"
         fname = helpers.get_meta_prompt_clean() + state.get_name() + "_" + tag
         fname = fname.replace('[','_').replace(']','_').replace(':','_').replace('.','_') + ".png"
-        prompt_output_path = state.config.output_path / state.config.prompt / self.get_innermost_folder()
+        prompt_output_path = state.config.output_path / helpers.get_inner_folder_name() / self.get_innermost_folder()
         prompt_output_path.mkdir(exist_ok=True, parents=True)
         helpers.annotate_image(image[0])
         image[0].save(prompt_output_path / fname)
+
+

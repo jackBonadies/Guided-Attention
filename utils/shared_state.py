@@ -12,7 +12,20 @@ injectDeepFeatures = False
 deepFeatures = None
 
 curHyperParams = None
-hyperParameterDicts = [{"strict":False, "inside_loss_scale":.2, "outside_loss_scale":.2,"shrink_factor":.25, "thresholds": {0: 0.1, 2: 0.8}},{"strict":False, "inside_loss_scale":.2, "outside_loss_scale":.2,"shrink_factor":.25, "thresholds": {0: 0.1, 4: 0.8}},{"strict":False, "inside_loss_scale":.2, "outside_loss_scale":.2,"shrink_factor":.25, "thresholds": {0: 0.1, 5: 0.8}},{"strict":False, "inside_loss_scale":.2, "outside_loss_scale":.2,"shrink_factor":.25, "thresholds": {0: 0.1, 6: 0.8}}]
+
+#hyperParamDefaults = {"strict":False, "inside_loss_scale":.2, "outside_loss_scale":.2,"shrink_factor":0, "thresholds": {0: 0.2, 4: 0.8, 5: .9, 6: .9, 8: .9, 12: .9}, "meta_prompt": "a [robot:.6,.3,.4,.55] and a [blue vase:0,.3,.4,.55]"}
+hyperParamDefaults = {"strict":False, "inside_loss_scale":.2, "outside_loss_scale":.2,"shrink_factor":.15, "thresholds": {0:.4, 2:.8, 4:.9, 8:.9}, "meta_prompt": "a [robot:.6,.3,.4,.55] and a [vase:0,.3,.4,.55] and the [moon:.35,.05,.35,.35]"}
+hyperParamOverrides = [{}]#{"thresholds": {0: 0.1, 15: 0.8}}, {"thresholds": {0: 0.1, 20: 0.8}}, {"thresholds": {0: 0.1, 30: 0.8}}, {"thresholds": {0: 0.1, 40: 0.8}}]
+
+def get_hyperparam_states():
+    hyperParamStateDicts = []
+    for overrides in hyperParamOverrides:
+        new_state = hyperParamDefaults.copy()
+        for override in overrides:
+            new_state[override] = overrides[override]
+        hyperParamStateDicts.append(new_state)
+    return hyperParamStateDicts
+
 
 tags = ["cur_seed", "cur_time_step_iter", "optimizeDeepLatent"]
 

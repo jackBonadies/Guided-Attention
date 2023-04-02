@@ -71,7 +71,13 @@ def get_indices(tokenized_prompt, tokens):
         if tokenized_prompt[i:i+tokens_len] == tokens:
             return list(range(i,i+tokens_len))
 
-def execute(config):
+def overrideConfig(config):
+    if 'meta_prompt' in shared_state.curHyperParams:
+        config.meta_prompt = shared_state.curHyperParams['meta_prompt']
+    if 'thresholds' in shared_state.curHyperParams:
+        config.thresholds = shared_state.curHyperParams["thresholds"]
+
+def parseMetaPrompt(config):
     config.prompt, config.meta_info = helpers.parse_prompt(config.meta_prompt)
     shared_state.config = config
     tokenized_prompt = config.stable.tokenizer(config.prompt)['input_ids']
@@ -82,12 +88,17 @@ def execute(config):
         for indice in indices:
             token_dict[indice] = {'word':config.stable.tokenizer.decode(tokenized_prompt[indice]), 'loss_type' : meta_info_item[1], 'loss' : meta_info_item[2], 'subprompt' : meta_info_item[0]}
     config.token_dict = token_dict
+
+def execute(config):
+
     images = []
     image_path = None
     for seed in config.seeds:
-        for hyperParamState in shared_state.hyperParameterDicts:
+        for hyperParamState in shared_state.get_hyperparam_states():
             shared_state.curHyperParams = hyperParamState
-            config.thresholds = shared_state.curHyperParams["thresholds"]
+            overrideConfig(config)
+            parseMetaPrompt(config)
+            
             shared_state.cur_seed = seed
             print(f"Seed: {seed}")
             g = torch.Generator('cuda').manual_seed(seed)
@@ -97,7 +108,7 @@ def execute(config):
                                 controller=controller,
                                 seed=g,
                                 config=config)
-            prompt_output_path = config.output_path / config.prompt
+            prompt_output_path = config.output_path / helpers.get_inner_folder_name()
             prompt_output_path.mkdir(exist_ok=True, parents=True)
             image_path = prompt_output_path / f'{seed}.png'
             helpers.annotate_image(image)

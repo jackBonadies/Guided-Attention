@@ -79,15 +79,24 @@ def parse_prompt(meta_prompt):
             meta_prompt = meta_prompt[space_index:]
     return prompt, meta_info
 
+def get_inner_folder_name():
+    return get_meta_prompt_clean()
 
 def get_meta_prompt_clean():
     return state.config.meta_prompt.replace('[','_').replace(']','_').replace(':','_').replace('.','_')
+
+colors = ["#0000a0","#a00000","#00a000","#ecf024","#8d24f0"]
+def get_color(i):
+    return colors[i]
 
 def annotate_image(image):
     if state.config.annotate:
         draw  = ImageDraw.Draw(image)
         font  = ImageFont.truetype("arial.ttf", 20, encoding="unic")
+        i = 0
         for m_info in state.config.meta_info:
+            fill_color = get_color(i)
+            i += 1
             word = m_info[0]
             if m_info[1] == AnnotationType.COOR:
                 xy = m_info[2]
@@ -96,14 +105,14 @@ def annotate_image(image):
                 x_desired = x
                 y_desired = y
                 length = 15
-                draw.line( [((512)/16*(x_desired) - length,512/16*y_desired),((512)/16*(x_desired) + length,512/16*y_desired)], fill="#a00000" )
-                draw.line( [(512)/16*(x_desired),(512)/16*y_desired - length,(512)/16*(x_desired),(512)/16*y_desired + length], fill="#a00000" )
-                draw.text( (512/16*x,512/16*y), word, fill="#a00000", font=font)
+                draw.line( [((512)/16*(x_desired) - length,512/16*y_desired),((512)/16*(x_desired) + length,512/16*y_desired)], fill=fill_color )
+                draw.line( [(512)/16*(x_desired),(512)/16*y_desired - length,(512)/16*(x_desired),(512)/16*y_desired + length], fill=fill_color )
+                draw.text( (512/16*x,512/16*y), word, fill=fill_color, font=font)
             elif m_info[1] == AnnotationType.BOX:
                 rect = m_info[2]
                 shape = [(rect.x * 512, rect.y * 512), (rect.right() * 512, rect.bottom() * 512)]
-                draw.rectangle(shape, fill=None, width=2, outline="#a00000")
-                draw.text( (512*rect.x,512*rect.y), word, fill="#a00000", font=font)
+                draw.rectangle(shape, fill=None, width=2, outline=fill_color)
+                draw.text( (512*rect.x,512*rect.y), word, fill=fill_color, font=font)
 
 #bounding box helper functions...
 sample_center = True
@@ -236,6 +245,8 @@ def dictToString(dict1):
     if type(dict1) is dict:
         str1 = ""
         for item in dict1.items():
+            if item[0] == "meta_prompt": #this is in the outer folder
+                continue
             str1 += "_" + str(item[0]) + "_" + dictToString(item[1])
         return str1
     else:
