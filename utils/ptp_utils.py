@@ -6,6 +6,8 @@ import torch
 from IPython.display import display
 from PIL import Image
 from typing import Union, Tuple, List
+import utils.shared_state as state
+import utils.helpers as helpers
 
 from diffusers.models.cross_attention import CrossAttention
 
@@ -76,8 +78,8 @@ class AttendExciteCrossAttnProcessor:
         key = attn.head_to_batch_dim(key)
         value = attn.head_to_batch_dim(value)
 
-        attention_probs = attn.get_attention_scores(query, key, attention_mask)
-
+        #attention_probs = attn.get_attention_scores(query, key, attention_mask)
+        attention_probs = self.get_attention_scores(query, key, attention_mask, attn)
         self.attnstore(attention_probs, is_cross, self.place_in_unet)
 
         hidden_states = torch.bmm(attention_probs, value)
@@ -89,6 +91,66 @@ class AttendExciteCrossAttnProcessor:
         hidden_states = attn.to_out[1](hidden_states)
 
         return hidden_states
+    
+    # from CrossAttention (diffusers)
+    # pulled out for paint with words modification.
+    def get_attention_scores(self, query, key, attention_mask=None, attn=None):
+        dtype = query.dtype
+        if attn.upcast_attention:
+            query = query.float()
+            key = key.float()
+        torch.cuda.empty_cache() #maybe
+        attention_scores = torch.baddbmm(
+            torch.empty(query.shape[0], query.shape[1], key.shape[1], dtype=query.dtype, device=query.device),
+            query,
+            key.transpose(-1, -2),
+            beta=0,
+            alpha=attn.scale,
+        ) # same result as torch.bmm(query, key.transpose(-1, -2))*self.scale
+        mask = None
+
+        
+
+
+        if key.shape[1] == 77 and "use_paint_with_words" in state.curHyperParams.keys() and state.curHyperParams["use_paint_with_words"]:
+            w = 1.0
+            if "paint_with_words_weight" in state.curHyperParams.keys():
+                w = state.curHyperParams["paint_with_words_weight"]
+            indices_to_alter = list(state.config.token_dict.keys())
+            flattenedImgDim = query.shape[1]
+            hw = int(flattenedImgDim ** .5)
+            mask = torch.zeros((hw, hw, 77))
+            for token_indice in indices_to_alter:
+                if state.config.token_dict[token_indice]['loss_type'] == helpers.AnnotationType.BOX:
+                    rect = state.config.token_dict[token_indice]['loss']
+                    scaled_rect = rect.of_size(hw)
+                    for ii in range(0,hw):
+                        for jj in range(0,hw):
+                            if helpers.inside_box(jj, ii, scaled_rect):
+                                mask[ii][jj][token_indice] = w
+
+
+            mask = mask.reshape(flattenedImgDim, 77)
+            mask = mask.unsqueeze(0).repeat((query.shape[0],1,1)).cuda() #TODO batch==2!!
+
+        # range from -7 to 9 (for first iter), 15, -16.
+        if attention_mask is not None:
+            attention_scores = attention_scores + attention_mask
+
+        # if is_cross_attn:
+        #     print("cross attn max: " + str(attention_scores.max().item()))
+        #     print("cross attn min: " + str(attention_scores.min().item()))
+
+        if mask is not None:
+            attention_scores = attention_scores + mask * .4 * attention_scores.max() * np.log(1 + state.get_sigma())
+
+        if attn.upcast_softmax:
+            attention_scores = attention_scores.float()
+
+        attention_probs = attention_scores.softmax(dim=-1)
+        attention_probs = attention_probs.to(dtype)
+
+        return attention_probs
 
 
 def register_attention_control(model, controller):

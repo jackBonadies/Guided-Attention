@@ -98,6 +98,7 @@ def execute(config):
             shared_state.curHyperParams = hyperParamState
             overrideConfig(config)
             parseMetaPrompt(config)
+            helpers.log_clear()
             
             shared_state.cur_seed = seed
             print(f"Seed: {seed}")
@@ -114,6 +115,7 @@ def execute(config):
             helpers.annotate_image(image)
             name1 = helpers.dictToString(shared_state.curHyperParams)
             image.save(prompt_output_path / f'{seed}{name1}.png')
+            helpers.log_save(prompt_output_path / f'{seed}{name1}.txt')
             images.append(image)
 
     # save a grid of results across all seeds

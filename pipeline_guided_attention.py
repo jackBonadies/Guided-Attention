@@ -219,6 +219,11 @@ class GuidedAttention(StableDiffusionPipeline):
         attention_for_text = torch.nn.functional.softmax(attention_for_text, dim=-1)
         # ^ now per pixel we get the softmax attn values NOT including the global token
 
+        if state.config.save_all_maps:
+            self.save_viridis(attention_maps[:, :, 0], "_attnmap_" + "GLOBAL")
+        if state.config.save_all_maps:
+            self.save_viridis(attention_maps[:, :, len(self.tokenizer(self.prompt)['input_ids']) - 1], "_attnmap_" + "PAD0")
+
         # Shift indices since we removed the first token
         indices_to_alter = [index - 1 for index in state.config.token_dict.keys()]
 
@@ -233,10 +238,12 @@ class GuidedAttention(StableDiffusionPipeline):
             for index_i in range(0,len(self.tokenizer(state.config.prompt)['input_ids'][1:-1])):
                 image = attention_for_text[:, :, index_i] #16, 16
                 self.save_viridis(image, "_attnmap_" + self.get_token(index_i + 1))
+                helpers.log(self.get_token(index_i + 1) + ": " + str(image.sum().item())) #how much it pays attention to this token relative to all others.
         else:
             for index_i in indices_to_alter:
                 image = attention_for_text[:, :, index_i] #16, 16
                 self.save_viridis(image, "_attnmap_" + self.get_token(index_i + 1))
+                helpers.log(self.get_token(index_i + 1) + ": " + str(image.sum().item()))
 
         for i in indices_to_alter:
             image = attention_for_text[:, :, i] #16, 16
@@ -800,7 +807,11 @@ class GuidedAttention(StableDiffusionPipeline):
         self.scheduler = DDIMScheduler.from_config(self.scheduler.config)
         # 4. Prepare timesteps #50 steps default
         self.scheduler.set_timesteps(num_inference_steps, device=device)
+
+        sigmas = np.array(((1 - self.scheduler.alphas_cumprod) / self.scheduler.alphas_cumprod) ** 0.5)
         timesteps = self.scheduler.timesteps
+        state.sigmas = sigmas
+        state.timesteps = timesteps
 
         # 5. Prepare latent variables
         num_channels_latents = self.unet.in_channels

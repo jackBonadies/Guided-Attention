@@ -4,6 +4,7 @@ from enum import Enum
 import numpy as np
 import math
 import torch as tr
+import os
 
 class AnnotationType(Enum):
     COOR = 0
@@ -251,3 +252,15 @@ def dictToString(dict1):
         return str1
     else:
         return str(dict1)
+
+lines = []
+def log(text):
+    lines.append(text + os.linesep)
+
+def log_clear():
+    lines = []
+
+def log_save(filename):
+    fp = open(filename, 'w')
+    fp.writelines(lines)
+    fp.close()
