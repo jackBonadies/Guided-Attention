@@ -110,12 +110,15 @@ class AttendExciteCrossAttnProcessor:
         mask = None
 
         
+        stop = 0 #off
+        if "paint_with_words_stop" in state.curHyperParams.keys():
+            stop = state.curHyperParams["paint_with_words_stop"]
 
-
-        if key.shape[1] == 77 and "use_paint_with_words" in state.curHyperParams.keys() and state.curHyperParams["use_paint_with_words"]:
+        if key.shape[1] == 77 and state.cur_time_step_iter < stop:
             w = 1.0
             if "paint_with_words_weight" in state.curHyperParams.keys():
                 w = state.curHyperParams["paint_with_words_weight"]
+
             indices_to_alter = list(state.config.token_dict.keys())
             flattenedImgDim = query.shape[1]
             hw = int(flattenedImgDim ** .5)
@@ -133,13 +136,8 @@ class AttendExciteCrossAttnProcessor:
             mask = mask.reshape(flattenedImgDim, 77)
             mask = mask.unsqueeze(0).repeat((query.shape[0],1,1)).cuda() #TODO batch==2!!
 
-        # range from -7 to 9 (for first iter), 15, -16.
         if attention_mask is not None:
             attention_scores = attention_scores + attention_mask
-
-        # if is_cross_attn:
-        #     print("cross attn max: " + str(attention_scores.max().item()))
-        #     print("cross attn min: " + str(attention_scores.min().item()))
 
         if mask is not None:
             attention_scores = attention_scores + mask * .4 * attention_scores.max() * np.log(1 + state.get_sigma())

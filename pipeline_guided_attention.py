@@ -344,6 +344,15 @@ class GuidedAttention(StableDiffusionPipeline):
                 loss_total += totals
             final_losses[item_[0]] = loss_total
         return loss_total, final_losses
+    
+
+    @staticmethod
+    def get_centering_loss(center, losses_dict, i):
+        part1 = max(0., 1.*(losses_dict["col"][i] - center[0]*16).abs()/15.) #8.* caused serious artifacts when optimizing in pixel space
+        part2 = max(0., 4.*(losses_dict["row"][i] - center[1]*16).abs()/15.) #1. -- way too weak...
+        loss_item = part1 + part2
+        return loss_item
+
 
     @staticmethod
     def _compute_loss(losses_dict: dict[str,List[torch.Tensor]], return_losses: bool = False) -> torch.Tensor:
@@ -357,13 +366,12 @@ class GuidedAttention(StableDiffusionPipeline):
             #losses_dict["max_loss"][i]
             if token_info['loss_type'] == helpers.AnnotationType.COOR:
                 xy = token_info['loss']
-                part1 = max(0., 1.*(losses_dict["col"][i] - xy[0]*16).abs()/15.) #8.* caused serious artifacts when optimizing in pixel space
-                part2 = max(0., 4.*(losses_dict["row"][i] - xy[1]*16).abs()/15.) #1. -- way too weak...
-                loss_item = part1 + part2
+                loss_item = GuidedAttention.get_centering_loss(xy, losses_dict, i)
+
                 losses.append((first_index,loss_item))
             elif token_info['loss_type'] == helpers.AnnotationType.BOX:
                 rect = token_info['loss']
-                center = rect.center()
+                
                 # should be centered
                 # part1 = max(0., 1.*(losses_dict["col"][i] - center[0]*16).abs()/15.) #8.* caused serious artifacts when optimizing in pixel space
                 # part2 = max(0., 4.*(losses_dict["row"][i] - center[1]*16).abs()/15.) #1. -- way too weak...
@@ -371,8 +379,14 @@ class GuidedAttention(StableDiffusionPipeline):
                 #addition *10 gave good attention maps but OOD results.
                 part3 = state.curHyperParams["inside_loss_scale"]*losses_dict["inside_loss"][i] 
                 part4 = state.curHyperParams["outside_loss_scale"]*losses_dict["outside_loss"][i] 
-
                 loss_item = part3 + part4
+                #centering loss is for .gif or animation. so that small movements less than 1/16 boundary still have effect.
+                if "bb_center_weight" in state.curHyperParams.keys() and state.curHyperParams["bb_center_weight"] > 0:
+                    center = rect.center()
+                    centering_weight = state.curHyperParams["bb_center_weight"]
+                    center_loss_item = centering_weight * GuidedAttention.get_centering_loss(center, losses_dict, i)
+                    loss_item += center_loss_item
+                
                 print("loss for " + str(token_info['word']) + ": " + str(loss_item.item()))
                 losses.append((first_index,loss_item))
                 #loss_total += loss_item
