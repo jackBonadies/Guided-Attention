@@ -110,14 +110,9 @@ class AttendExciteCrossAttnProcessor:
         mask = None
 
         
-        stop = 0 #off
-        if "paint_with_words_stop" in state.curHyperParams.keys():
-            stop = state.curHyperParams["paint_with_words_stop"]
-
+        stop = state.curHyperParams.get("paint_with_words_stop", 0) #0 == off
         if key.shape[1] == 77 and state.cur_time_step_iter < stop:
-            w = 1.0
-            if "paint_with_words_weight" in state.curHyperParams.keys():
-                w = state.curHyperParams["paint_with_words_weight"]
+            w = state.curHyperParams.get("paint_with_words_weight", 1.0)
 
             indices_to_alter = list(state.config.token_dict.keys())
             flattenedImgDim = query.shape[1]

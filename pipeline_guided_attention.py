@@ -381,9 +381,9 @@ class GuidedAttention(StableDiffusionPipeline):
                 part4 = state.curHyperParams["outside_loss_scale"]*losses_dict["outside_loss"][i] 
                 loss_item = part3 + part4
                 #centering loss is for .gif or animation. so that small movements less than 1/16 boundary still have effect.
-                if "bb_center_weight" in state.curHyperParams.keys() and state.curHyperParams["bb_center_weight"] > 0:
+                centering_weight = state.curHyperParams.get("bb_center_weight", .05)
+                if centering_weight > 0:
                     center = rect.center()
-                    centering_weight = state.curHyperParams["bb_center_weight"]
                     center_loss_item = centering_weight * GuidedAttention.get_centering_loss(center, losses_dict, i)
                     loss_item += center_loss_item
                 

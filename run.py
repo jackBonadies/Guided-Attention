@@ -126,14 +126,17 @@ def execute(config):
     
 skipLoading = False
 
-@pyrallis.wrap()
-def main(config: RunConfig):
+def setup(config):
     shared_state.config = config
     if not skipLoading:
         if config.half_precision:
             torch.set_default_tensor_type(torch.HalfTensor)
         stable = load_model(config)
         config.stable = stable
+
+@pyrallis.wrap()
+def main(config: RunConfig):
+    setup(config)
     if config.interactive:
         import gui
         gui.run()

@@ -12,7 +12,7 @@ class RunConfig:
     # Which random seeds to use when generating
     seeds: List[int] = field(default_factory=lambda: [42])
     # Path to save all outputs to
-    output_path: Path = Path('./outputs2')
+    output_path: Path = Path('./outputs3')
     # Number of denoising steps
     n_inference_steps: int = 50
     # Text guidance scale

@@ -18,8 +18,8 @@ curHyperParams = None
 
 #hyperParamDefaults = {"strict":False, "inside_loss_scale":.2, "outside_loss_scale":.2,"shrink_factor":0, "thresholds": {0: 0.2, 4: 0.8, 5: .9, 6: .9, 8: .9, 12: .9}, "meta_prompt": "a [robot:.6,.3,.4,.55] and a [blue vase:0,.3,.4,.55]"}
 #hyperParamDefaults = {"strict":False, "inside_loss_scale":.2, "outside_loss_scale":.2,"shrink_factor":.15, "thresholds": {0:.4, 2:.8, 4:.9, 8:.9}, "meta_prompt": "a [robot:.6,.3,.4,.55] and a [vase:0,.3,.4,.55] and the [moon:.35,.05,.35,.35]"}
-hyperParamDefaults = {"strict":False, "inside_loss_scale":.2, "outside_loss_scale":.2,"shrink_factor":.15, "thresholds": {0:.4, 4:.8, 6:.9}, "meta_prompt": "a [robot:.6,.3,.4,.55] and a [vase:.2,.3,.4,.55]", "paint_with_words_stop":0, "bb_center_weight":.05} #"paint_with_words_weight":.1
-hyperParamOverrides = [{},{"bb_center_weight":0.0},{"bb_center_weight":.05},{"bb_center_weight":.2},{"bb_center_weight":.4}]#{"thresholds": {0: 0.1, 15: 0.8}}, {"thresholds": {0: 0.1, 20: 0.8}}, {"thresholds": {0: 0.1, 30: 0.8}}, {"thresholds": {0: 0.1, 40: 0.8}}]
+hyperParamDefaults = {"strict":False, "inside_loss_scale":.2, "outside_loss_scale":.2,"shrink_factor":.15, "thresholds": {0:.6, 2:.6,4:.6}, "meta_prompt": "a [robot:.54,.3,.4,.55] and a [blue vase:.14,.3,.4,.55]"}
+hyperParamOverrides = [{},{"meta_prompt": "a [robot:.53,.3,.4,.55] and a [blue vase:.13,.3,.4,.55]"},{"meta_prompt": "a [robot:.49,.3,.4,.55] and a [blue vase:.09,.3,.4,.55]"}]#{"thresholds": {0: 0.1, 15: 0.8}}, {"thresholds": {0: 0.1, 20: 0.8}}, {"thresholds": {0: 0.1, 30: 0.8}}, {"thresholds": {0: 0.1, 40: 0.8}}]
 
 
 def get_sigma():
