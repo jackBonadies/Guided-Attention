@@ -111,10 +111,11 @@ def execute(config):
                                 config=config)
             prompt_output_path = config.output_path / helpers.get_inner_folder_name()
             prompt_output_path.mkdir(exist_ok=True, parents=True)
-            image_path = prompt_output_path / f'{seed}.png'
+            
             helpers.annotate_image(image)
             name1 = helpers.dictToString(shared_state.curHyperParams)
-            image.save(prompt_output_path / f'{seed}{name1}.png')
+            image_path = prompt_output_path / f'{seed}{name1}.png'
+            image.save(image_path)
             helpers.log_save(prompt_output_path / f'{seed}{name1}.txt')
             images.append(image)
 
