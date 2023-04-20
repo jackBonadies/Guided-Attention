@@ -270,8 +270,8 @@ class GuidedAttention(StableDiffusionPipeline):
             #indexMax = image.flatten().argmax() #NOT differentiable...
             # col = indexMax % 16
             # row = int(indexMax / 16)
-            print("weighted center col: " + str(weighted_center_col.item()))
-            print("weighted center row: " + str(weighted_center_row.item()))
+            helpers.log("weighted center col: " + str(weighted_center_col.item()))
+            helpers.log("weighted center row: " + str(weighted_center_row.item()))
             col_list.append(weighted_center_col)
             row_list.append(weighted_center_row)
             if state.config.token_dict[i+1]['loss_type'] == helpers.AnnotationType.BOX:
@@ -333,16 +333,15 @@ class GuidedAttention(StableDiffusionPipeline):
         #average for subprompt, sum between subprompts
         for item_ in subprompt_losses.items():
             val = item_[1]
-            cnt = 0
+            cnt = len(val)
             totals = torch.Tensor([0.]).cuda()
-            for k in range(0, len(val)):
-                cnt += 1
-                totals += val[k][1]
-            if state.config.sub_prompt_avg_within:
-                loss_total += totals / cnt
-            else:
-                loss_total += totals
-            final_losses[item_[0]] = loss_total
+            for k in range(0, cnt):
+                if state.config.sub_prompt_avg_within:
+                    totals += val[k][1] / cnt
+                else:
+                    totals += val[k][1]
+            loss_total += totals
+            final_losses[item_[0]] = totals
         return loss_total, final_losses
     
 
@@ -387,7 +386,7 @@ class GuidedAttention(StableDiffusionPipeline):
                     center_loss_item = centering_weight * GuidedAttention.get_centering_loss(center, losses_dict, i)
                     loss_item += center_loss_item
                 
-                print("loss for " + str(token_info['word']) + ": " + str(loss_item.item()))
+                helpers.log("loss for " + str(token_info['word']) + ": " + str(loss_item.item()))
                 losses.append((first_index,loss_item))
                 #loss_total += loss_item
             # elif state.toRight:
@@ -407,18 +406,21 @@ class GuidedAttention(StableDiffusionPipeline):
         """ Update the latent according to the computed loss. """
         if state.optimizeDeepLatent:
             grad_cond = torch.autograd.grad(loss.requires_grad_(True), [state.deepFeatures], retain_graph=True)[0]
-            print("gradient size average: " + str(grad_cond.abs().mean().item()))
+            helpers.log("gradient size average: " + str(grad_cond.abs().mean().item()))
             #print("gradient size sum: " + str(grad_cond.abs().sum().item()))
             # 3000, 100 produce similar results. both rather low quality. the gradient size is about a 100th of optimizing pixel space.
             # 25 is too weak. get robot on either size.
             state.deepFeatures = state.deepFeatures - step_size * grad_cond * 200
         else:
             grad_cond = torch.autograd.grad(loss.requires_grad_(True), [latents], retain_graph=True)[0]
-            print("gradient size average: " + str(grad_cond.abs().mean().item()))
+            helpers.log("gradient size average: " + str(grad_cond.abs().mean().item()))
             #print("gradient size sum: " + str(grad_cond.abs().sum().item()))
             latents = latents - step_size * grad_cond #remove
         return latents
 
+    inside_iterative_refinement = False
+    optim = None
+    
     def _perform_iterative_refinement_step(self,
                                            latents: torch.Tensor,
                                            loss: torch.Tensor,
@@ -432,23 +434,30 @@ class GuidedAttention(StableDiffusionPipeline):
                                            smooth_attentions: bool = True,
                                            sigma: float = 0.5,
                                            kernel_size: int = 3,
-                                           max_refinement_steps: int = 20,
+                                           max_refinement_steps: int = 25,
                                            normalize_eot: bool = False):
         """
         Performs the iterative latent refinement introduced in the paper. Here, we continuously update the latent
         code according to our loss objective until the given threshold is reached for all tokens.
         """
-        
+        self.inside_iterative_refinement = True
+        use_optimizer = state.curHyperParams.get("use_optimizer", False)
+        if use_optimizer:
+            self.optim = torch.optim.SGD([latents], lr=step_size / 2.5, momentum=0.8) # /2.0 to compensate for momentum.
         iteration = 0
         state.sub_iteration = iteration
         target_loss = max(0, 1. - threshold)
-        while loss > target_loss:
+        losses = None
+        while losses is None or not self.meets_threshold(state.cur_time_step_iter, state.config.thresholds, losses):
+            helpers.log(f"subiteration: {iteration}")
+            if use_optimizer:
+                self.optim.zero_grad()
             iteration += 1
             state.sub_iteration = iteration
             if state.optimizeDeepLatent:
                 pass
                 #latents = latents.clone().detach().requires_grad_(True)
-            else:
+            elif not use_optimizer:
                 latents = latents.clone().detach().requires_grad_(True) #restart node graph
             if state.optimizeDeepLatent:
                 state.deepFeatures = state.deepFeatures.clone().detach().requires_grad_(True)
@@ -487,7 +496,10 @@ class GuidedAttention(StableDiffusionPipeline):
 
             loss, losses = self._compute_loss(losses_dict, return_losses=True)
 
-            if loss != 0:
+            if use_optimizer:
+                loss.backward()
+                self.optim.step()
+            elif loss != 0:
                 latents = self._update_latent(latents, loss, step_size)
 
             if state.config.diagnostic_level > 0:
@@ -496,7 +508,7 @@ class GuidedAttention(StableDiffusionPipeline):
                     noise_pred_text = self.unet(latents, t, encoder_hidden_states=text_embeddings[1].unsqueeze(0)).sample
 
             if iteration >= max_refinement_steps:
-                print(f'\t Exceeded max number of iterations ({max_refinement_steps})! ')
+                helpers.log(f'\t Exceeded max number of iterations ({max_refinement_steps})! ', True)
                 break
 
         # Run one more time but don't compute gradients and update the latents.
@@ -514,7 +526,7 @@ class GuidedAttention(StableDiffusionPipeline):
             kernel_size=kernel_size,
             normalize_eot=normalize_eot)
         loss, losses = self._compute_loss(max_attention_per_index, return_losses=True)
-        print(f"\t Finished with loss of: {loss}")
+        helpers.log(f"\t Finished with loss of: {loss} iter: {iteration}", True)
         state.sub_iteration = 0
         return loss, latents, max_attention_per_index
 
@@ -853,6 +865,7 @@ class GuidedAttention(StableDiffusionPipeline):
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 state.cur_time_step_iter = i
+                helpers.log(f"iteration {i}", True)
                 with torch.enable_grad(): #this causes issues with save_image() since requires_grad is forced to true.
                     if state.optimizeDeepLatent:
                         latents = latents.detach()
@@ -923,7 +936,7 @@ class GuidedAttention(StableDiffusionPipeline):
                             if loss != 0:
                                 latents = self._update_latent(latents=latents, loss=loss,  #TODO: non iterative version fails
                                                               step_size=scale_factor * np.sqrt(scale_range[i]))
-                            print(f'Iteration {i} | Loss: {loss.item():0.4f}') #.item() needed. tensor itself doesnt implement certain format operations
+                            helpers.log(f'Iteration {i} | Loss: {loss.item():0.4f}', True) #.item() needed. tensor itself doesnt implement certain format operations
 
                 # expand the latents if we are doing classifier free guidance
                 latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
@@ -984,7 +997,10 @@ class GuidedAttention(StableDiffusionPipeline):
         return True
         
     def get_innermost_folder(self):
-        return str(state.cur_seed) + helpers.dictToString(state.curHyperParams)
+        if state.config.interactive:
+            return str(state.cur_seed)
+        else:
+            return str(state.cur_seed) + helpers.dictToString(state.curHyperParams)
 
     def save_viridis(self, tensor1, tag):
         with torch.no_grad():

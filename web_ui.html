@@ -490,7 +490,7 @@ class BoundingBox
 
     get_coords() 
     {
-        return this.startX/canvasWidth + "," + this.startY/canvasHeight + "," + this.width/canvasWidth + "," + this.height/canvasHeight;
+        return (this.startX/canvasWidth).toFixed(2) + "," + (this.startY/canvasHeight).toFixed(2) + "," + (this.width/canvasWidth).toFixed(2) + "," + (this.height/canvasHeight).toFixed(2);
     }
     
 }
@@ -506,7 +506,7 @@ class Crosshair
 
     get_coords() 
     {
-        return this.startX/canvasWidth + "," + this.startY/canvasHeight
+        return (this.startX/canvasWidth).toFixed(2) + "," + (this.startY/canvasHeight).toFixed(2)
     }
 }
 

@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify
 from utils import helpers, shared_state
 from run import execute
+import random
 import shutil
 
 app = Flask(__name__, template_folder='.')
@@ -21,6 +22,7 @@ def add_word(prompt, token):
 def execute_function():
     meta_prompt = request.json['variable1']
     shared_state.config.meta_prompt = meta_prompt
+    shared_state.config.seeds = [int(random.randrange(4294967294))]
     print(meta_prompt)
     image_path = execute(shared_state.config)
     shutil.copyfile(str(image_path), "static/output.png")

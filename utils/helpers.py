@@ -84,7 +84,10 @@ def get_inner_folder_name():
     return get_meta_prompt_clean()
 
 def get_meta_prompt_clean():
-    return state.config.meta_prompt.replace('[','_').replace(']','_').replace(':','_').replace('.','_')
+    full_meta_prompt = state.config.meta_prompt.replace('[','_').replace(']','_').replace(':','_').replace('.','_')
+    if state.config.interactive:
+        return full_meta_prompt[0:5]
+    return full_meta_prompt
 
 colors = ["#0000a0","#a00000","#00a000","#ecf024","#8d24f0"]
 def get_color(i):
@@ -254,13 +257,18 @@ def dictToString(dict1):
         return str(dict1)
 
 lines = []
-def log(text):
+def log(text, also_print = False):
     lines.append(text + os.linesep)
+    if(also_print):
+        print(text)
+
 
 def log_clear():
+    global lines
     lines = []
 
 def log_save(filename):
     fp = open(filename, 'w')
     fp.writelines(lines)
     fp.close()
+    log_clear()
