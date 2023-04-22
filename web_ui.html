@@ -42,6 +42,69 @@
         display: flex;
     }
     
+    /* Google Fonts import for modern typography */
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Roboto', sans-serif;
+  font-size: 18px;
+  line-height: 1.6;
+  color: #333;
+}
+
+button {
+  font-family: 'Roboto', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background-color: #2898cc;
+  color: #fff;
+  transition: all 0.3s ease;
+}
+
+button:hover {
+  background-color: #29B6F6;
+}
+
+button:active {
+  transform: scale(0.95);
+}
+
+button:disabled {
+  background-color: #BDBDBD;
+  color: #fff;
+  cursor: not-allowed;
+}
+
+button:disabled:hover,
+button:disabled:active {
+  background-color: #BDBDBD;
+  transform: none;
+}
+
+#myCanvas {
+  border: 20px solid #4FC3F7;
+  position: relative;
+  transition: box-shadow 0.3s ease;
+}
+
+
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 700;
+  margin-bottom: 20px;
+}
+
+p {
+  margin-bottom: 10px;
+}
 
     </style>
 	
@@ -88,6 +151,10 @@ document.addEventListener('selectionchange', setButtonStates)
 
 const tooltip = "Select word(s) in prompt to begin setting annotations."
 
+// starting states - prevents flicker.
+addCrosshair.disabled = true
+addBoundingBox.disabled = true
+clearBtn.disabled = true
 
 function setButtonStates()
 {
@@ -118,6 +185,8 @@ function setButtonStates()
     }
 
 }
+
+
 
 function isOurTextSelected()
 {
@@ -432,8 +501,6 @@ function drawTextWithRoundedBackground(text, x, y, backgroundColor) {
   ctx.fillText(text, x, y + textHeight * 0.8);
 }
 
-//drawTextWithRoundedBackground('Hello, world!', 50, 50, 'rgba(0, 128, 0, 0.5)', 'white', 0);
-
 let isDrawing = false
 let addingBoundingBox = false
 let addingCrosshair = false
@@ -593,55 +660,24 @@ canvas.addEventListener('click', function(event) {
 function addCrosshairClick() {
     addingCrosshair = true
     getSelectedText()
+    indicateReadyToDraw()
 }
 
 function addBoundingBoxClick() {
     addingBoundingBox = true
     getSelectedText()
+    indicateReadyToDraw()
 }
 
 const editableDiv = document.getElementById('editableDiv');
 
 editableDiv.addEventListener('input', function() {
     console.log("input here");
-    // <!-- const words = editableDiv.innerText.split(' '); -->
-    // <!-- let colorfulHTML = ''; -->
-
-    // <!-- for (const word of words) { -->
-    //     <!-- const color = getColorForWord(word); -->
-    //     <!-- colorfulHTML += `<span style="color:${color};">${word}</span> `; -->
-    // <!-- } -->
-
-    // <!-- editableDiv.innerHTML = colorfulHTML; -->
-    // <!-- placeCaretAtEnd(editableDiv); -->
 });
 
 editableDiv.addEventListener('onclick', function() {
     console.log("onclick here");
-    // <!-- const words = editableDiv.innerText.split(' '); -->
-    // <!-- let colorfulHTML = ''; -->
-
-    // <!-- for (const word of words) { -->
-    //     <!-- const color = getColorForWord(word); -->
-    //     <!-- colorfulHTML += `<span style="color:${color};">${word}</span> `; -->
-    // <!-- } -->
-
-    // <!-- editableDiv.innerHTML = colorfulHTML; -->
-    // <!-- placeCaretAtEnd(editableDiv); -->
 });
-
-function getColorForWord(word) {
-    // Customize this function to return different colors for different words
-    if (word.toLowerCase() === 'red') {
-        return 'red';
-    } else if (word.toLowerCase() === 'blue') {
-        return 'blue';
-    } else if (word.toLowerCase() === 'green') {
-        return 'green';
-    } else {
-        return 'black';
-    }
-}
 
 function placeCaretAtEnd(el) {
     el.focus();
@@ -660,22 +696,24 @@ function placeCaretAtEnd(el) {
     }
 }
 
-// const placeholder = document.querySelector('.placeholder');
+function indicateReadyToDraw()
+{
+    oldWidth = ctx.lineWidth
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#28cc33'; // You can change the color to match your design
+    ctx.setLineDash([7, 7]); // Creates the dotted effect with 5px dashes and 5px gaps
 
-// editableDiv.addEventListener('input', () => {
-//     placeholder.style.display = editableDiv.textContent.trim() === '' ? '' : 'none';
-// });
+    // Draw a dotted rectangle
+    const x = 0; // X coordinate
+    const y = 0; // Y coordinate
+    const width = canvas.width; // Width of the rectangle
+    const height = canvas.height; // Height of the rectangle
 
-// editableDiv.addEventListener('focus', () => {
-//     placeholder.style.color = '#ccc';
-// });
+    ctx.strokeRect(x, y, width, height);
 
-// editableDiv.addEventListener('blur', () => {
-//     placeholder.style.color = '#aaa';
-// });
-
-// placeholder.style.display = editableDiv.textContent.trim() === '' ? '' : 'none';
-
+    ctx.lineWidth = oldWidth;
+    ctx.setLineDash([]); 
+}
 
 setButtonStates()
 
