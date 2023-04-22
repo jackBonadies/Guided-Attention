@@ -1,6 +1,6 @@
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](http://colab.research.google.com/github/jackBonadies/Guided-Attention/blob/main/notebooks/GuidedAttention.ipynb)
 # Guided-Attention
-Diffusion Model with that allows for annotations (bounding boxes, crosshairs, keywords) to guide latent based on cross attention layers.
+Diffusion Model that allows for annotations (bounding boxes, crosshairs, keywords) to guide latent based on cross attention layers.
 This model does not use any fine tuning (all modification is done at inference) and is fully compatible with existing models such as Stable Diffusion.
 
 # Example
