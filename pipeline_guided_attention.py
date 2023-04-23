@@ -219,10 +219,10 @@ class GuidedAttention(StableDiffusionPipeline):
         attention_for_text = torch.nn.functional.softmax(attention_for_text, dim=-1)
         # ^ now per pixel we get the softmax attn values NOT including the global token
 
-        if state.config.save_all_maps:
-            self.save_viridis(attention_maps[:, :, 0], "_attnmap_" + "GLOBAL")
-        if state.config.save_all_maps:
-            self.save_viridis(attention_maps[:, :, len(self.tokenizer(self.prompt)['input_ids']) - 1], "_attnmap_" + "PAD0")
+        # if state.config.save_all_maps:
+        #     self.save_viridis(attention_maps[:, :, 0], "_attnmap_" + "GLOBAL")
+        # if state.config.save_all_maps:
+        #     self.save_viridis(attention_maps[:, :, len(self.tokenizer(self.prompt)['input_ids']) - 1], "_attnmap_" + "PAD0")
 
         # Shift indices since we removed the first token
         indices_to_alter = [index - 1 for index in state.config.token_dict.keys()]
@@ -234,7 +234,7 @@ class GuidedAttention(StableDiffusionPipeline):
         inside_loss_list = []
         outside_loss_list = []
 
-        if state.config.save_all_maps:
+        if state.config.save_all_maps and False:
             for index_i in range(0,len(self.tokenizer(state.config.prompt)['input_ids'][1:-1])):
                 image = attention_for_text[:, :, index_i] #16, 16
                 self.save_viridis(image, "_attnmap_" + self.get_token(index_i + 1))
@@ -260,12 +260,12 @@ class GuidedAttention(StableDiffusionPipeline):
             # this is softmax for pixel space (i.e. which pixels pay most attn to token x i.e. attn[:,:,0].sum() == 1) 
             # whereas above was which tokens does pixel y pay most attn. (i.e. attn[0][0].sum() == 1)
             #imageSoftmax = torch.nn.functional.softmax(image.flatten() * .2, dim=-1).reshape(16,16)
-            imageSoftmax = image / image.sum()
+            imageNormalized = image / image.sum()
             for ii in range(0, 16):
                 for jj in range(0, 16):
                     # sample pixels at center. so center of image is (8,8). without adding .5 it would be at (7.5 7.5).
-                    weighted_center_col += (jj + .5) * imageSoftmax[ii][jj] #weighed x. 
-                    weighted_center_row += (ii + .5) * imageSoftmax[ii][jj] #weighed y.
+                    weighted_center_col += (jj + .5) * imageNormalized[ii][jj] #weighed x. 
+                    weighted_center_row += (ii + .5) * imageNormalized[ii][jj] #weighed y.
 
             #indexMax = image.flatten().argmax() #NOT differentiable...
             # col = indexMax % 16
@@ -276,7 +276,7 @@ class GuidedAttention(StableDiffusionPipeline):
             row_list.append(weighted_center_row)
             if state.config.token_dict[i+1]['loss_type'] == helpers.AnnotationType.BOX:
                 rect = state.config.token_dict[i+1]['loss']
-                inside_loss, outside_loss = helpers.calculate_bounding_box_losses(rect.of_size(16.0), imageSoftmax)
+                inside_loss, outside_loss = helpers.calculate_bounding_box_losses(rect.of_size(16.0), imageNormalized)
                 inside_loss_list.append(inside_loss)
                 outside_loss_list.append(outside_loss)
             else:
@@ -357,6 +357,7 @@ class GuidedAttention(StableDiffusionPipeline):
     def _compute_loss(losses_dict: dict[str,List[torch.Tensor]], return_losses: bool = False) -> torch.Tensor:
         """ Computes the attend-and-excite loss using the maximum attention value for each token. """
         losses = []
+        unscaled_losses = []
         
         for i in range(0, len(losses_dict["max_loss"])):
             first_index = list(state.config.token_dict.keys())[i]
@@ -368,6 +369,7 @@ class GuidedAttention(StableDiffusionPipeline):
                 loss_item = GuidedAttention.get_centering_loss(xy, losses_dict, i)
 
                 losses.append((first_index,loss_item))
+                unscaled_losses.append((first_index,loss_item))
             elif token_info['loss_type'] == helpers.AnnotationType.BOX:
                 rect = token_info['loss']
                 
@@ -376,8 +378,11 @@ class GuidedAttention(StableDiffusionPipeline):
                 # part2 = max(0., 4.*(losses_dict["row"][i] - center[1]*16).abs()/15.) #1. -- way too weak...
 
                 #addition *10 gave good attention maps but OOD results.
-                part3 = state.curHyperParams["inside_loss_scale"]*losses_dict["inside_loss"][i] 
-                part4 = state.curHyperParams["outside_loss_scale"]*losses_dict["outside_loss"][i] 
+                inside_unscaled = losses_dict["inside_loss"][i]
+                outside_unscaled = losses_dict["outside_loss"][i]
+                unscaled_loss_item = inside_unscaled + outside_unscaled
+                part3 = state.curHyperParams["inside_loss_scale"] * inside_unscaled
+                part4 = state.curHyperParams["outside_loss_scale"] * outside_unscaled * 3
                 loss_item = part3 + part4
                 #centering loss is for .gif or animation. so that small movements less than 1/16 boundary still have effect.
                 centering_weight = state.curHyperParams.get("bb_center_weight", .05)
@@ -386,8 +391,9 @@ class GuidedAttention(StableDiffusionPipeline):
                     center_loss_item = centering_weight * GuidedAttention.get_centering_loss(center, losses_dict, i)
                     loss_item += center_loss_item
                 
-                helpers.log("loss for " + str(token_info['word']) + ": " + str(loss_item.item()))
+                helpers.log(f"{state.cur_time_step_iter:02d}.{state.sub_iteration:02d} loss for {token_info['word']}: {(inside_unscaled + outside_unscaled).item()}")
                 losses.append((first_index,loss_item))
+                unscaled_losses.append((first_index,unscaled_loss_item))
                 #loss_total += loss_item
             # elif state.toRight:
             #     losses.append(max(0, 2*(15. - losses_dict["col"][i])/15.)) # loss for each token
@@ -397,7 +403,7 @@ class GuidedAttention(StableDiffusionPipeline):
             # aggregate losses by subprompt
         
         loss, _ = GuidedAttention.group_losses_by_sumprompt(losses)
-        return loss, losses
+        return loss, losses, unscaled_losses
     
 
 
@@ -434,7 +440,7 @@ class GuidedAttention(StableDiffusionPipeline):
                                            smooth_attentions: bool = True,
                                            sigma: float = 0.5,
                                            kernel_size: int = 3,
-                                           max_refinement_steps: int = 25,
+                                           max_refinement_steps: int = 5,
                                            normalize_eot: bool = False):
         """
         Performs the iterative latent refinement introduced in the paper. Here, we continuously update the latent
@@ -446,9 +452,8 @@ class GuidedAttention(StableDiffusionPipeline):
             self.optim = torch.optim.SGD([latents], lr=step_size / 2.5, momentum=0.8) # /2.0 to compensate for momentum.
         iteration = 0
         state.sub_iteration = iteration
-        target_loss = max(0, 1. - threshold)
         losses = None
-        while losses is None or not self.meets_threshold(state.cur_time_step_iter, state.config.thresholds, losses):
+        while losses is None or not self.meets_threshold(state.cur_time_step_iter, state.config.thresholds, unscaled_losses):
             helpers.log(f"subiteration: {iteration}")
             if use_optimizer:
                 self.optim.zero_grad()
@@ -494,7 +499,7 @@ class GuidedAttention(StableDiffusionPipeline):
                 normalize_eot=normalize_eot
                 )
 
-            loss, losses = self._compute_loss(losses_dict, return_losses=True)
+            loss, losses, unscaled_losses = self._compute_loss(losses_dict, return_losses=True)
 
             if use_optimizer:
                 loss.backward()
@@ -525,7 +530,7 @@ class GuidedAttention(StableDiffusionPipeline):
             sigma=sigma,
             kernel_size=kernel_size,
             normalize_eot=normalize_eot)
-        loss, losses = self._compute_loss(max_attention_per_index, return_losses=True)
+        loss, losses, unscaled_losses = self._compute_loss(max_attention_per_index, return_losses=True)
         helpers.log(f"\t Finished with loss of: {loss} iter: {iteration}", True)
         state.sub_iteration = 0
         return loss, latents, max_attention_per_index
@@ -828,7 +833,7 @@ class GuidedAttention(StableDiffusionPipeline):
             prompt_embeds=prompt_embeds,
             negative_prompt_embeds=negative_prompt_embeds,
         )
-        state.always_save_iter = [list(thresholds)[-1] - 1, list(thresholds)[-1], list(thresholds)[-1] + 1]
+        state.always_save_iter = [0, 1, 2]
 
         self.scheduler = DDIMScheduler.from_config(self.scheduler.config)
         # 4. Prepare timesteps #50 steps default
@@ -861,114 +866,144 @@ class GuidedAttention(StableDiffusionPipeline):
             max_iter_to_alter = len(self.scheduler.timesteps) + 1
 
         # 7. Denoising loop
+        recurse_steps = state.curHyperParams.get("recurse_steps",1)
+        recurse_until = state.curHyperParams.get("recurse_until",20)
+
+        renoise_gen = None
+        if recurse_steps > 1:
+            renoise_gen = torch.Generator('cuda').manual_seed(generator.initial_seed()) #so recurse will also be deterministic
+
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
-                state.cur_time_step_iter = i
-                helpers.log(f"iteration {i}", True)
-                with torch.enable_grad(): #this causes issues with save_image() since requires_grad is forced to true.
-                    if state.optimizeDeepLatent:
-                        latents = latents.detach()
-                    else:
-                        latents = latents.clone().detach().requires_grad_(True) #basically restart node graph
-                    state.injectDeepFeatures = False #i.e. do not reuse the old noiser one.
+                for recurse_step in range(0, recurse_steps):
+                    did_we_update = False
+                    state.cur_time_step_iter = i
+                    helpers.log(f"iteration {i}", True)
+                    with torch.enable_grad(): #this causes issues with save_image() since requires_grad is forced to true.
+                        if state.optimizeDeepLatent:
+                            latents = latents.detach()
+                        else:
+                            latents = latents.clone().detach().requires_grad_(True) #basically restart node graph
+                        state.injectDeepFeatures = False #i.e. do not reuse the old noiser one.
 
-                    if state.config.diagnostic_level > 0:
-                        #----optional, get without text condition to get diagnostic info from before optimizing...
-                        with torch.no_grad(), state.TurnOffRequiresGradDeepLatent():
-                            noise_pred_uncond = self.unet(latents, t,
-                                                        encoder_hidden_states=prompt_embeds[0].unsqueeze(0), cross_attention_kwargs=cross_attention_kwargs).sample
+                        if state.config.diagnostic_level > 0:
+                            #----optional, get without text condition to get diagnostic info from before optimizing...
+                            with torch.no_grad(), state.TurnOffRequiresGradDeepLatent():
+                                noise_pred_uncond = self.unet(latents, t,
+                                                            encoder_hidden_states=prompt_embeds[0].unsqueeze(0), cross_attention_kwargs=cross_attention_kwargs).sample
+                            self.unet.zero_grad()
+                            #----
+
+                        # Forward pass of denoising with text conditioning
+                        noise_pred_text = self.unet(latents, t,
+                                                    encoder_hidden_states=prompt_embeds[1].unsqueeze(0), cross_attention_kwargs=cross_attention_kwargs).sample
+                        #ddim_output = self.scheduler.step(noise_pred_text, t, latents, **extra_step_kwargs)
                         self.unet.zero_grad()
+
+                        if state.config.diagnostic_level > 0:
+                        #----diagnostics
+                            with torch.no_grad():
+                                noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                                ddim_output = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs)
+                                self.save_image(ddim_output.pred_original_sample, "pred_pre_optim")
                         #----
 
-                    # Forward pass of denoising with text conditioning
-                    noise_pred_text = self.unet(latents, t,
-                                                encoder_hidden_states=prompt_embeds[1].unsqueeze(0), cross_attention_kwargs=cross_attention_kwargs).sample
-                    #ddim_output = self.scheduler.step(noise_pred_text, t, latents, **extra_step_kwargs)
-                    self.unet.zero_grad()
 
-                    if state.config.diagnostic_level > 0:
-                    #----diagnostics
-                        with torch.no_grad():
-                            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
-                            ddim_output = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs)
-                            self.save_image(ddim_output.pred_original_sample, "pred_pre_optim")
-                    #----
+                        # Get max activation value for each subject token
+                        max_attention_per_index = self._aggregate_and_get_max_attention_per_token(
+                            attention_store=attention_store,
+                            attention_res=attention_res,
+                            smooth_attentions=smooth_attentions,
+                            sigma=sigma,
+                            kernel_size=kernel_size,
+                            normalize_eot=sd_2_1)
+                        
+                        
 
+                        if not run_standard_sd:
+                            
+                            loss, losses, unscaled_losses = self._compute_loss(losses_dict=max_attention_per_index)
 
-                    # Get max activation value for each subject token
-                    max_attention_per_index = self._aggregate_and_get_max_attention_per_token(
-                        attention_store=attention_store,
-                        attention_res=attention_res,
-                        smooth_attentions=smooth_attentions,
-                        sigma=sigma,
-                        kernel_size=kernel_size,
-                        normalize_eot=sd_2_1)
+                            # If this is an iterative refinement step, verify we have reached the desired threshold for all
+                            if not self.meets_threshold(i, thresholds, unscaled_losses):
+                                did_we_update = True
+                                del noise_pred_text
+                                torch.cuda.empty_cache()
+                                # here we return the new optimized latent
+                                loss, latents, max_attention_per_index = self._perform_iterative_refinement_step(
+                                    latents=latents,
+                                    loss=loss,
+                                    threshold=thresholds[i],
+                                    text_embeddings=prompt_embeds,
+                                    text_input=text_inputs,
+                                    attention_store=attention_store,
+                                    step_size=scale_factor * np.sqrt(scale_range[i]),
+                                    t=t,
+                                    attention_res=attention_res,
+                                    smooth_attentions=smooth_attentions,
+                                    max_refinement_steps=2, #
+                                    sigma=sigma,
+                                    kernel_size=kernel_size,
+                                    normalize_eot=sd_2_1)
 
-                    if not run_standard_sd:
+                            # Perform gradient update
+                            if i < max_iter_to_alter:
+                                if not self.meets_threshold(-1, state.config.thresholds, unscaled_losses):
+                                    did_we_update = True
+                                    loss, losses, unscaled_losses = self._compute_loss(losses_dict=max_attention_per_index)
+                                    if loss != 0:
+                                        latents = self._update_latent(latents=latents, loss=loss,  #TODO: non iterative version fails
+                                                                    step_size=scale_factor * np.sqrt(scale_range[i]))
+                                    helpers.log(f'Iteration {i} | Loss: {loss.item():0.4f}', True) #.item() needed. tensor itself doesnt implement certain format operations
+                                else:
+                                    helpers.log(f'Iteration {i} | Loss: {loss.item():0.4f}', True) #.item() needed. tensor itself doesnt implement certain format operations
 
-                        loss, losses = self._compute_loss(losses_dict=max_attention_per_index)
+                    # expand the latents if we are doing classifier free guidance
+                    latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                    latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
-                        # If this is an iterative refinement step, verify we have reached the desired threshold for all
-                        if not self.meets_threshold(i, thresholds, losses):
-                            del noise_pred_text
-                            torch.cuda.empty_cache()
-                            # here we return the new optimized latent
-                            loss, latents, max_attention_per_index = self._perform_iterative_refinement_step(
-                                latents=latents,
-                                loss=loss,
-                                threshold=thresholds[i],
-                                text_embeddings=prompt_embeds,
-                                text_input=text_inputs,
-                                attention_store=attention_store,
-                                step_size=scale_factor * np.sqrt(scale_range[i]),
-                                t=t,
-                                attention_res=attention_res,
-                                smooth_attentions=smooth_attentions,
-                                max_refinement_steps=25, #
-                                sigma=sigma,
-                                kernel_size=kernel_size,
-                                normalize_eot=sd_2_1)
+                    # predict the noise residual (with the optimized latent)
+                    noise_pred = self.unet(
+                        latent_model_input,
+                        t,
+                        encoder_hidden_states=prompt_embeds,
+                        cross_attention_kwargs=cross_attention_kwargs,
+                    ).sample
 
-                        # Perform gradient update
-                        if i < max_iter_to_alter:
-                            loss, losses = self._compute_loss(losses_dict=max_attention_per_index)
-                            if loss != 0:
-                                latents = self._update_latent(latents=latents, loss=loss,  #TODO: non iterative version fails
-                                                              step_size=scale_factor * np.sqrt(scale_range[i]))
-                            helpers.log(f'Iteration {i} | Loss: {loss.item():0.4f}', True) #.item() needed. tensor itself doesnt implement certain format operations
+                    # perform guidance
+                    if do_classifier_free_guidance:
+                        noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
-                # expand the latents if we are doing classifier free guidance
-                latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-                latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+                    # compute the previous noisy sample x_t -> x_t-1 (with optimized latent AND noise pred from optimized latent)
+                    with torch.no_grad():
+                        ddim_output = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs)
+                        latents = ddim_output.prev_sample
+                        if state.config.diagnostic_level > 1:
+                            self.save_image(latents, "xt") #looks just like pred but with added noise....
+                        if state.config.diagnostic_level > 0 or state.cur_time_step_iter in state.always_save_iter:
+                            self.save_image(ddim_output.pred_original_sample, "pred")
 
-                # predict the noise residual (with the optimized latent)
-                noise_pred = self.unet(
-                    latent_model_input,
-                    t,
-                    encoder_hidden_states=prompt_embeds,
-                    cross_attention_kwargs=cross_attention_kwargs,
-                ).sample
-
-                # perform guidance
-                if do_classifier_free_guidance:
-                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
-
-                # compute the previous noisy sample x_t -> x_t-1 (with optimized latent AND noise pred from optimized latent)
-                with torch.no_grad():
-                    ddim_output = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs)
-                    latents = ddim_output.prev_sample
-                    if state.config.diagnostic_level > 1:
-                        self.save_image(latents, "xt") #looks just like pred but with added noise....
-                    if state.config.diagnostic_level > 0 or state.cur_time_step_iter in state.always_save_iter:
-                        self.save_image(ddim_output.pred_original_sample, "pred")
-
-                # call the callback, if provided
-                if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
-                    progress_bar.update()
-                    if callback is not None and i % callback_steps == 0:
-                        callback(i, t, latents)
+                    # call the callback, if provided
+                    if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
+                        progress_bar.update()
+                        if callback is not None and i % callback_steps == 0:
+                            callback(i, t, latents)
+                    if (i > recurse_until or not did_we_update): # do not re add noise
+                        break #break out of recurse loop 
+                    if recurse_step != (recurse_steps - 1):
+                        #add noise to get to previous noise level
+                        a_cum_t = self.scheduler.alphas_cumprod[t]
+                        prev_timestep = t - self.scheduler.config.num_train_timesteps // self.scheduler.num_inference_steps
+                        a_cum_prev_t = self.scheduler.alphas_cumprod[prev_timestep]
+                        if prev_timestep > 0: #i.e. last one will have prev timestep of -19, not valid.
+                            Bt = a_cum_t / a_cum_prev_t
+                            latents = (Bt).sqrt() * latents + (1-Bt).sqrt() * torch.randn(latents.shape, generator=renoise_gen, device="cuda") #(1-Bt).sqrt() paper, correct else ddim_output.pred_original_sample will contain the noise
+        #             if torch.isnan(latents.min()):
+        #                 pass
+        # if torch.isnan(latents.min()):
+        #     pass
 
         # 8. Post-processing
         image = self.decode_latents(latents)
@@ -987,12 +1022,17 @@ class GuidedAttention(StableDiffusionPipeline):
     
     def meets_threshold(self, i, thresholds, losses):
         _, subprompt_loss = GuidedAttention.group_losses_by_sumprompt(losses) #dict [subprompt] -> loss
-        if i not in thresholds:
+        if i not in thresholds and i != -1:
             return True
         else:
             # if each meets the threshold
             for item in subprompt_loss.items(): #list of tuples (tokenIndex, loss)
-                if item[1] > 1 - thresholds[i]:
+                thresh = 0
+                if i == -1:
+                    thresh = list(thresholds.values())[-1]
+                else:
+                    thresh = thresholds[i]
+                if item[1] > thresh:
                     return False
         return True
         
@@ -1000,7 +1040,7 @@ class GuidedAttention(StableDiffusionPipeline):
         if state.config.interactive:
             return str(state.cur_seed)
         else:
-            return str(state.cur_seed) + helpers.dictToString(state.curHyperParams)
+            return str(state.cur_seed)# + helpers.dictToString(state.curHyperParams)
 
     def save_viridis(self, tensor1, tag):
         with torch.no_grad():

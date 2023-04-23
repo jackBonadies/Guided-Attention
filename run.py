@@ -115,7 +115,13 @@ def execute(config):
             helpers.annotate_image(image)
             name1 = helpers.dictToString(shared_state.curHyperParams)
             image_path = prompt_output_path / f'{seed}{name1}.png'
-            image.save(image_path)
+            try:
+                image.save(image_path)
+            except:
+                print("bad path. this is often due to exceeding max path length.")
+                name1 = ""
+                image_path = prompt_output_path / f'{seed}{name1}.png'
+                image.save(image_path)
             helpers.log_save(prompt_output_path / f'{seed}{name1}.txt')
             images.append(image)
 
