@@ -106,6 +106,58 @@ p {
   margin-bottom: 10px;
 }
 
+.custom-checkbox input[type="checkbox"] {
+    display: none;
+}
+
+.custom-checkbox .checkmark {
+    position: relative;
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    background-color: #ccc;
+    border-radius: 4px;
+    transition: background-color 0.3s;
+    cursor: pointer;
+}
+
+.custom-checkbox input[type="checkbox"]:checked + .checkmark::after {
+    content: "";
+    position: absolute;
+    width: 6px;
+    height: 12px;
+    border: solid white;
+    border-width: 0 3px 3px 0;
+    transform: rotate(45deg);
+    top: 1.5px;
+    left: 6px;
+}
+
+.custom-checkbox input[type="checkbox"]:checked + .checkmark {
+    background-color: #2898cc;
+}
+
+.custom-checkbox{
+    display: flex;
+    align-items: center;
+}
+
+#checkLabel{
+  font-family: 'Roboto', sans-serif;
+  font-size: 14px;
+  margin-left: 4px;
+  vertical-align: middle;
+    cursor: pointer;
+}
+
+.custom-checkbox:hover .checkmark {
+    background-color: #999;
+}
+
+.custom-checkbox input[type="checkbox"]:checked:hover .checkmark {
+    background-color: #4CAF50;
+}
+
     </style>
 	
 </head>
@@ -131,6 +183,14 @@ p {
     <button id="clear">Clear Annotations</button>
 	<button id="submit1" style="margin-left:12px">Submit</button>
     </div>
+	
+	<div style="margin-top:12px;margin-left:2px" id="options">
+    <label class="custom-checkbox">
+        <input type="checkbox" id="showAnnotationsOnOutput">
+        <span class="checkmark"></span>
+        <label id="checkLabel" for="showAnnotationsOnOutput">    Show Annotations On Output Image</label>
+	</label>
+	</div>
 	<!-- <form id="executeFunctionForm" action="{{ url_for('execute_function') }}" method="post">
 	
 	<button type="submit">Execute Python Function</button>
@@ -141,6 +201,7 @@ p {
 var clearBtn = document.getElementById("clear");
 const addCrosshair = document.getElementById('add_crosshair');
 const addBoundingBox = document.getElementById('add_bounding_box');
+const showAnnotations = document.getElementById("showAnnotationsOnOutput");
 
 
 clearBtn.addEventListener('click', clearAnnotations);
@@ -251,36 +312,48 @@ img.style.visibility = "hidden";
 img.style.display = "none";
 //drawImage = true
 
-colors = ['Blue', 'Green', 'OrangeRed', 'Yellow']
+colors = ['Blue', 'Green', 'OrangeRed', 'Purple', 'DeepPink', 'Gold', 'DarkGreen', 'Teal', 'MediumSlateBlue']
 elements = []
+elementsAtSubmitTime = []
 function redrawCanvas() {
 
     if (drawImage)
     {
         var img = document.getElementById("outImage");
         outCtx.drawImage(img, 0, 0)
+		
+		if (showAnnotations.checked)
+		{
+			drawAllElements(elementsAtSubmitTime, outCtx)
+		}
+		
         //ctx.drawImage(img, 0, 0)
     }
 
-	for(var i=0;i<elements.length;i++)
+	drawAllElements(elements, ctx)
+    
+    setButtonStates()
+}
+
+function drawAllElements(elToDraw, cur_ctx)
+{
+	for(var i=0;i<elToDraw.length;i++)
 	{
 		// <!-- if(elements[i].isVisible) -->
 		// <!-- { -->
-		let el = elements[i]
+		let el = elToDraw[i]
         if (el instanceof BoundingBox)
         {
             console.log("redraw bb")
-            drawBox(el.startX, el.startY, el.width, el.height, el.info.text, el.info.color);
+            drawBox(el.startX, el.startY, el.width, el.height, el.info.text, el.info.color, cur_ctx);
         }
         else if (el instanceof Crosshair)
         {
-            drawCrosshair(el.x, el.y, el.info.text, el.info.color)
+            drawCrosshair(el.x, el.y, el.info.text, el.info.color, cur_ctx)
         }
 		
 		// <!-- } -->
     }
-    
-    setButtonStates()
 }
 
 const but1 = document.getElementById('submit1');
@@ -291,8 +364,12 @@ function createMetaPrompt()
     let text = editableDiv.innerText
     for(var i=0;i<elements.length;i++)
     {
-        let sub_text = elements[i].info.text
+        let sub_text = elements[i].info.text.trim()
         let start = text.indexOf(sub_text)
+        if(start == -1)
+        {
+            throw "cannot find token: " + sub_text;
+        }
         let end = start + sub_text.length
         text = text.substring(0, start) + "[" + sub_text + ":" + elements[i].get_coords() + "]" + " " + text.substring(end)
     }
@@ -301,31 +378,52 @@ function createMetaPrompt()
 
 async function sendDataToFlask() {
 
-    let meta_prompt = createMetaPrompt()
-    meta_prompt = meta_prompt.replace('\n','')
+    try
+    {
+        if (but1.disabled)
+        {
+            return
+        }
+        but1.disabled = true
 
-    const data = {
-        variable1: meta_prompt,
-    };
+        elementsAtSubmitTime = []
+        for(var i=0;i<elements.length;i++)
+        {
+            elementsAtSubmitTime.push(elements[i])
+        }
 
-    const response = await fetch('/execute_function', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(data)
-    });
 
-    const responseData = await response.json();
-    path1 = responseData['result'] 
-    path1 = "8.png"
-    drawImage = true
-    var img = document.getElementById("outImage");
-    // var beginning = "{{ url_for('static', filename='";
-    // var end = "') }}";
-    img.src = "/static/output.png"
+        let meta_prompt = createMetaPrompt()
+        meta_prompt = meta_prompt.replace('\n','')
 
-    redrawCanvas()
+        const data = {
+            variable1: meta_prompt,
+        };
+
+        const response = await fetch('/execute_function', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+
+        const responseData = await response.json();
+        path1 = responseData['result'] 
+        path1 = "8.png"
+        drawImage = true
+        var img = document.getElementById("outImage");
+        // var beginning = "{{ url_for('static', filename='";
+        // var end = "') }}";
+        img.src = "/static/output.png#" + new Date().getTime(); //cache breaker
+
+        redrawCanvas()
+
+    }
+    finally
+    {
+        but1.disabled = false
+    }
 
     setTimeout(function () { //TODO why is this necessary
         redrawCanvas()
@@ -448,57 +546,57 @@ function getNodeSize(node){
     }
 }
 
-function drawCrosshair(x, y, text1, color1) {
-    ctx.beginPath();
+function drawCrosshair(x, y, text1, color1, cur_ctx) {
+    cur_ctx.beginPath();
 
     // Draw horizontal line
-    ctx.moveTo(x - crosshairSize / 2, y);
-    ctx.lineTo(x + crosshairSize / 2, y);
+    cur_ctx.moveTo(x - crosshairSize / 2, y);
+    cur_ctx.lineTo(x + crosshairSize / 2, y);
 
     // Draw vertical line
-    ctx.moveTo(x, y - crosshairSize / 2);
-    ctx.lineTo(x, y + crosshairSize / 2);
+    cur_ctx.moveTo(x, y - crosshairSize / 2);
+    cur_ctx.lineTo(x, y + crosshairSize / 2);
 
-    ctx.strokeStyle = color1;
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    cur_ctx.strokeStyle = color1;
+    cur_ctx.lineWidth = 1;
+    cur_ctx.stroke();
 
-    drawTextWithRoundedBackground(text1, x + 2, y + 2, color1)
+    drawTextWithRoundedBackground(text1, x + 2, y + 2, color1, cur_ctx)
 }
 
 
-function drawTextWithRoundedBackground(text, x, y, backgroundColor) {
+function drawTextWithRoundedBackground(text, x, y, backgroundColor, cur_ctx) {
   console.log("drawing text " + x + " " + y)
   textColor = 'white'
   let borderRadius = 0
 
   // Set the text and background colors
-  ctx.fillStyle = backgroundColor;
-  ctx.strokeStyle = backgroundColor;
+  cur_ctx.fillStyle = backgroundColor;
+  cur_ctx.strokeStyle = backgroundColor;
 
   // Calculate the width and height of the text
-  ctx.font = '14px sans-serif';
-  const metrics = ctx.measureText(text);
+  cur_ctx.font = '14px sans-serif';
+  const metrics = cur_ctx.measureText(text);
   const textWidth = metrics.width;
-  const textHeight = parseInt(ctx.font);
+  const textHeight = parseInt(cur_ctx.font);
 
   // Draw the rounded rectangle background
-  ctx.beginPath();
-  ctx.moveTo(x + borderRadius, y);
-  ctx.lineTo(x + textWidth - borderRadius, y);
-  ctx.quadraticCurveTo(x + textWidth, y, x + textWidth, y + borderRadius);
-  ctx.lineTo(x + textWidth, y + textHeight - borderRadius);
-  ctx.quadraticCurveTo(x + textWidth, y + textHeight, x + textWidth - borderRadius, y + textHeight);
-  ctx.lineTo(x + borderRadius, y + textHeight);
-  ctx.quadraticCurveTo(x, y + textHeight, x, y + textHeight - borderRadius);
-  ctx.lineTo(x, y + borderRadius);
-  ctx.quadraticCurveTo(x, y, x + borderRadius, y);
-  ctx.closePath();
-  ctx.fill();
+  cur_ctx.beginPath();
+  cur_ctx.moveTo(x + borderRadius, y);
+  cur_ctx.lineTo(x + textWidth - borderRadius, y);
+  cur_ctx.quadraticCurveTo(x + textWidth, y, x + textWidth, y + borderRadius);
+  cur_ctx.lineTo(x + textWidth, y + textHeight - borderRadius);
+  cur_ctx.quadraticCurveTo(x + textWidth, y + textHeight, x + textWidth - borderRadius, y + textHeight);
+  cur_ctx.lineTo(x + borderRadius, y + textHeight);
+  cur_ctx.quadraticCurveTo(x, y + textHeight, x, y + textHeight - borderRadius);
+  cur_ctx.lineTo(x, y + borderRadius);
+  cur_ctx.quadraticCurveTo(x, y, x + borderRadius, y);
+  cur_ctx.closePath();
+  cur_ctx.fill();
 
   // Draw the text on top of the background
-  ctx.fillStyle = textColor;
-  ctx.fillText(text, x, y + textHeight * 0.8);
+  cur_ctx.fillStyle = textColor;
+  cur_ctx.fillText(text, x, y + textHeight * 0.8);
 }
 
 let isDrawing = false
@@ -532,7 +630,7 @@ canvas.addEventListener('mousemove', function(event) {
 	redrawCanvas();
     //[startX, startY, x, y] = startXyTopLeft(startX, startY, x, y)
     console.log("startX " + startX + " X " + x)
-    drawBox(startX, startY, x - startX, y - startY, text_cur, color_cur);
+    drawBox(startX, startY, x - startX, y - startY, text_cur, color_cur, ctx);
 });
 
 class Info
@@ -613,13 +711,13 @@ canvas.addEventListener('mouseup', function(event) {
     isDrawing = false;
 });
 
-function drawBox(x, y, width, height, text, color) {
+function drawBox(x, y, width, height, text, color, cur_ctx) {
     console.log("draw box " + x + " " + y)
-    ctx.beginPath();
-    ctx.rect(x, y, width, height);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    cur_ctx.beginPath();
+    cur_ctx.rect(x, y, width, height);
+    cur_ctx.strokeStyle = color;
+    cur_ctx.lineWidth = 1;
+    cur_ctx.stroke();
 	if (text != null) //!== doesnt work todo
 	{
         if(width < 0)
@@ -630,7 +728,7 @@ function drawBox(x, y, width, height, text, color) {
         {
             y += height
         }
-		drawTextWithRoundedBackground(text, x, y, color)
+		drawTextWithRoundedBackground(text, x, y, color, cur_ctx)
 	}
 	
 }
@@ -716,6 +814,20 @@ function indicateReadyToDraw()
 }
 
 setButtonStates()
+
+
+
+showAnnotations.addEventListener("change", function (event) {
+
+  const isChecked = event.target.checked;
+  redrawCanvas()
+  <!-- if (isChecked) { -->
+    <!-- console.log("Checkbox is checked."); -->
+  <!-- } else { -->
+    <!-- console.log("Checkbox is unchecked."); -->
+  <!-- } -->
+});
+
 
 	</script>
 </body>

@@ -6,10 +6,14 @@ import shutil
 
 app = Flask(__name__, template_folder='.')
 
+@app.after_request #cache-breaker
+def add_no_store_header(response):
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
 @app.route('/', methods=['GET'])
 def index():
     return render_template(r"web_ui.html")
-
 
 def add_word(prompt, token):
     if len(prompt) == 0 or prompt[-1] == ' ':
@@ -32,7 +36,6 @@ def execute_function():
 
     
     return jsonify(response)
-
 
 @app.route('/post', methods=['POST'])
 def post():
