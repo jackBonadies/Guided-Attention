@@ -359,13 +359,26 @@ function drawAllElements(elToDraw, cur_ctx)
 const but1 = document.getElementById('submit1');
 but1.addEventListener('click', sendDataToFlask);
 
+function getIndexOfPhrase(full_text, sub_text)
+{
+    const regex = new RegExp(`\\b${sub_text}\\b`, 'i');
+    const match = regex.exec(full_text);
+
+    if (match) {
+        // unlike using a ' ' this index does not include \\b and is therefore correct.
+        return match.index; 
+    } else {
+        return -1;
+    }
+}
+
 function createMetaPrompt()
 {
     let text = editableDiv.innerText
     for(var i=0;i<elements.length;i++)
     {
         let sub_text = elements[i].info.text.trim()
-        let start = text.indexOf(sub_text)
+        let start = getIndexOfPhrase(text, sub_text)
         if(start == -1)
         {
             throw "cannot find token: " + sub_text;
