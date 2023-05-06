@@ -866,8 +866,10 @@ class GuidedAttention(StableDiffusionPipeline):
             max_iter_to_alter = len(self.scheduler.timesteps) + 1
 
         # 7. Denoising loop
-        recurse_steps = state.curHyperParams.get("recurse_steps",1)
+        recurse_steps = max(state.curHyperParams.get("recurse_steps",1),1)
         recurse_until = state.curHyperParams.get("recurse_until",20)
+        if(len(thresholds)==0):
+            thresholds = {0:float("inf")}
 
         renoise_gen = None
         if recurse_steps > 1:
@@ -942,7 +944,7 @@ class GuidedAttention(StableDiffusionPipeline):
                                     t=t,
                                     attention_res=attention_res,
                                     smooth_attentions=smooth_attentions,
-                                    max_refinement_steps=2, #
+                                    max_refinement_steps=10, #10 is good
                                     sigma=sigma,
                                     kernel_size=kernel_size,
                                     normalize_eot=sd_2_1)
@@ -980,6 +982,10 @@ class GuidedAttention(StableDiffusionPipeline):
                     with torch.no_grad():
                         ddim_output = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs)
                         latents = ddim_output.prev_sample
+
+                        helpers.log_latent_stats(latents, True)
+                        #helpers.dynamic_thresholding(latents, True, True)
+
                         if state.config.diagnostic_level > 1:
                             self.save_image(latents, "xt") #looks just like pred but with added noise....
                         if state.config.diagnostic_level > 0 or state.cur_time_step_iter in state.always_save_iter:
@@ -1022,7 +1028,7 @@ class GuidedAttention(StableDiffusionPipeline):
     
     def meets_threshold(self, i, thresholds, losses):
         _, subprompt_loss = GuidedAttention.group_losses_by_sumprompt(losses) #dict [subprompt] -> loss
-        if i not in thresholds and i != -1:
+        if (i not in thresholds and i != -1) or len(thresholds) == 0:
             return True
         else:
             # if each meets the threshold

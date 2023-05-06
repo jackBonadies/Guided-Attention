@@ -123,11 +123,13 @@ def execute(config):
                 image_path = prompt_output_path / f'{seed}{name1}.png'
                 image.save(image_path)
             helpers.log_save(prompt_output_path / f'{seed}{name1}.txt')
+            helpers.save_latent_stats(prompt_output_path / f'{seed}{name1}figure.png')
             images.append(image)
 
     # save a grid of results across all seeds
     joined_image = vis_utils.get_image_grid(images)
-    helpers.annotate_image(joined_image)
+    if not config.interactive:
+        helpers.annotate_image(joined_image)
     joined_image.save(config.output_path / f'{helpers.get_meta_prompt_clean()}.png')
     return image_path
     

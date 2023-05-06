@@ -5,6 +5,7 @@ import numpy as np
 import math
 import torch as tr
 import os
+import matplotlib.pyplot as plt
 
 class AnnotationType(Enum):
     COOR = 0
@@ -94,7 +95,7 @@ def get_color(i):
     return colors[i]
 
 def annotate_image(image):
-    if state.config.annotate:
+    if state.config.annotate and not state.config.interactive:
         draw  = ImageDraw.Draw(image)
         font  = ImageFont.truetype("arial.ttf", 20, encoding="unic")
         i = 0
@@ -272,3 +273,67 @@ def log_save(filename):
     fp.writelines(lines)
     fp.close()
     log_clear()
+
+means = {}
+stds = {}
+percentile99 = {}
+
+def log_latent_stats(latent, per_channel = False):
+    import numpy
+    if per_channel:
+        if 'ch0' not in percentile99.keys():
+            for i in range(0,4):
+                percentile99[f'ch{i}'] = []
+                stds[f'ch{i}'] = []
+                means[f'ch{i}'] = []
+        for i in range(0,4):
+            percentile99[f'ch{i}'].append(numpy.quantile(latent[0,i].abs().cpu(), .99))
+            stds[f'ch{i}'].append(latent[0,i].abs().std().item())
+            means[f'ch{i}'].append(latent[0,i].mean().item())
+    else:
+        if 'all' not in percentile99.keys():
+            percentile99['all'] = []
+            stds['all'] = []
+            means['all'] = []
+        percentile99['all'].append(numpy.quantile(latent.abs().cpu(), .99)) 
+        stds['all'].append(latent.abs().std().item())
+        means['all'].append(latent.mean().item())
+
+
+def save_latent_stats(filename):
+    if state.config.diagnostic_level > 0:
+        plt.ioff() #do not show
+        global means
+        global stds
+        global percentile99
+        for key in percentile99.keys():
+            plt.plot(means[key], label=f"{key} mean")
+            plt.plot(percentile99[key], label=f"{key} 99")
+        plt.legend(loc='best')
+        plt.savefig(filename)
+        plt.clf()
+        means = {}
+        stds = {}
+        percentile99 = {}
+
+
+def dynamic_thresholding(latents, per_channel = False, center_means = False):
+    import numpy
+    if per_channel:
+        for i in range(0,4):
+            percentile = numpy.quantile(latents[0,i].abs().cpu(), .99)
+            max_value = 2.5
+            if percentile > max_value:
+                latents[0,i] *= (max_value / percentile)
+        if center_means:
+            for i in range(0,4):
+                mean = latents[0,i].mean()
+                latents[0,i] -= mean
+    else:
+        percentile = numpy.quantile(latents.abs().cpu(), .99)
+        max_value = 2.5
+        if percentile > max_value:
+            latents *= (max_value / percentile)
+        if center_means:
+            mean = latents.mean()
+            latents -= mean
