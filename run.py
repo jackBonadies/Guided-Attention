@@ -1,5 +1,6 @@
 import pprint
 from typing import List
+from abc import ABC, abstractmethod
 
 import pyrallis
 import torch
@@ -78,7 +79,7 @@ def overrideConfig(config):
         config.thresholds = shared_state.curHyperParams["thresholds"]
 
 def parseMetaPrompt(config):
-    config.prompt, config.meta_info = helpers.parse_prompt(config.meta_prompt)
+    config.prompt, config.meta_info, config.custom_loss = helpers.parse_prompt(config.meta_prompt)
     shared_state.config = config
     tokenized_prompt = config.stable.tokenizer(config.prompt)['input_ids']
     token_dict = {} #relates indice to word and loss
@@ -143,9 +144,85 @@ def setup(config):
         stable = load_model(config)
         config.stable = stable
 
+
+class CustomLossBase(ABC):
+    @abstractmethod
+    def calc_loss(self, cross_attention_maps, text_args : str) -> torch.Tensor:
+        pass
+
+    # convenience methods
+    def parse_text_args(self, text_args : str):
+        import ast
+        return ast.literal_eval(text_args)
+    
+    def find_indices_for_sub_prompt(self, sub_prompt):
+        full_prompt = shared_state.config.stable.tokenizer(shared_state.config.prompt)['input_ids'][1:-1]
+        sub_prompt = shared_state.config.stable.tokenizer(sub_prompt)['input_ids'][1:-1]
+        for i in range(len(full_prompt) - len(sub_prompt) + 1):
+            if full_prompt[i:i + len(sub_prompt)] == sub_prompt:
+                return list(range(i, i + len(sub_prompt)))
+    
+    def get_map_for_token(self, cross_attention_maps, token_index : int, pixel_wise_normalization : True):
+        image_map = cross_attention_maps[:, :, token_index]
+        if pixel_wise_normalization:
+            image_map = image_map / image_map.sum()
+        return image_map
+
+        
+
+class ToLeftOf(CustomLossBase):
+    
+    def calc_loss(self, cross_attention_maps, text_args : str) -> torch.Tensor:
+        #text args ex. (cat, vase)
+        text_args = self.quote_items_in_tuple(text_args)
+
+        args = self.parse_text_args(text_args) #expected ("cat", "vase")
+        leftSideIndices = self.find_indices_for_sub_prompt(args[0])
+        rightSideIndices = self.find_indices_for_sub_prompt(args[1])
+        left_weighted_center = torch.Tensor([0.]).cuda()
+        right_weighted_center = torch.Tensor([0.]).cuda()
+        for i in leftSideIndices:
+            map = self.get_map_for_token(cross_attention_maps, i, True)
+            left_weighted_center += self.calc_weighted_center(map)[0] / len(leftSideIndices)
+        for i in rightSideIndices:
+            map = self.get_map_for_token(cross_attention_maps, i, True)
+            right_weighted_center += self.calc_weighted_center(map)[0] / len(leftSideIndices)
+        loss = (left_weighted_center + torch.Tensor([3]).cuda() - right_weighted_center) / 16
+        loss*=3 #weight
+        return torch.max(loss, torch.Tensor([0]).cuda())
+        
+    def quote_items_in_tuple(self, text_args):
+        items = text_args.strip('()').split(',')
+        quoted_items = [f"'{item.strip()}'" for item in items]
+        quoted_input_str = f"({','.join(quoted_items)})"
+        return quoted_input_str
+
+
+    def calc_weighted_center(self, imageNormalized):
+        weighted_center_col = torch.Tensor([0.]).cuda()
+        weighted_center_row = torch.Tensor([0.]).cuda()
+        for ii in range(0, 16):
+            for jj in range(0, 16):
+                # sample pixels at center. so center of image is (8,8). without adding .5 it would be at (7.5 7.5).
+                weighted_center_col += (jj + .5) * imageNormalized[ii][jj] #weighed x. 
+                weighted_center_row += (ii + .5) * imageNormalized[ii][jj] #weighed y.
+        return weighted_center_col, weighted_center_row
+        
+
+
+def register_custom_loss(name : str, customLoss : CustomLossBase):
+    if not hasattr(shared_state.config,"registered_loss_functions"):
+        shared_state.config.registered_loss_functions = {}
+    shared_state.config.registered_loss_functions[name] = customLoss
+
+
 @pyrallis.wrap()
 def main(config: RunConfig):
     setup(config)
+
+    # this is one place to register custom loss functions
+    register_custom_loss("toLeftOf", ToLeftOf())
+
     if config.interactive:
         import gui
         gui.run()

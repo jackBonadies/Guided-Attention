@@ -283,6 +283,11 @@ class GuidedAttention(StableDiffusionPipeline):
                 inside_loss_list.append(0)
                 outside_loss_list.append(0)
 
+        if hasattr(state.config, "custom_loss"):
+            losses_dict["custom_loss"] = torch.Tensor([0.]).cuda()
+            for custom_loss_item in state.config.custom_loss.items():
+                losses_dict["custom_loss"] += custom_loss_item[1][0].calc_loss(attention_for_text, custom_loss_item[1][1])
+
         losses_dict["max_loss"] = max_indices_list #list is in order.
         losses_dict["col"] = col_list
         losses_dict["row"] = row_list
@@ -324,7 +329,10 @@ class GuidedAttention(StableDiffusionPipeline):
         subprompt_losses = {}
         final_losses = {}
         for loss_item in losses: # per token
-            sub_prompt = state.config.token_dict[loss_item[0]]['subprompt']
+            if loss_item[0] is None:
+                sub_prompt = None
+            else:
+                sub_prompt = state.config.token_dict[loss_item[0]]['subprompt']
             if sub_prompt in subprompt_losses:
                 subprompt_losses[sub_prompt].append(loss_item)
             else:
@@ -401,7 +409,10 @@ class GuidedAttention(StableDiffusionPipeline):
             #     losses.append(max(0, 2*(losses_dict["col"][i])/15.)) # loss for each token
         #loss = None
             # aggregate losses by subprompt
-        
+        if "custom_loss" in losses_dict.keys():
+            losses.append((None, losses_dict["custom_loss"]))
+            unscaled_losses.append((None, losses_dict["custom_loss"]))
+
         loss, _ = GuidedAttention.group_losses_by_sumprompt(losses)
         return loss, losses, unscaled_losses
     

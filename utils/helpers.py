@@ -37,10 +37,30 @@ def add_word(prompt, token):
         prompt += ' ' + token
     return prompt
 
+
+def findMatchingBracket(stringAppended : str) -> int:
+    beginBracket = stringAppended[0]
+    numOpening = 0
+    indexOfClosing = -1
+    for i in range(1,len(stringAppended)):
+        if stringAppended[i] == '[':
+            numOpening += 1
+        elif stringAppended[i] == ']':
+            if numOpening == 0:
+                indexOfClosing = i
+                break
+            else:
+                numOpening -= 1
+        else:
+            pass # for debugger
+    return indexOfClosing
+
+
 def parse_prompt(meta_prompt):
     cur_index = 0
     prompt = ''
     meta_info = []
+    customLosses = {}
     while(True):
         meta_prompt = meta_prompt.lstrip(' ')
         space_index = -1
@@ -50,16 +70,24 @@ def parse_prompt(meta_prompt):
         if '[' in meta_prompt:
             meta_index = meta_prompt.index('[')
         if space_index == -1 and meta_index == -1:
-            return (prompt, meta_info)
+            return (prompt, meta_info, customLosses)
         if meta_index == -1:
-            return (add_word(prompt,meta_prompt[0:]), meta_info)
+            return (add_word(prompt,meta_prompt[0:]), meta_info, customLosses)
         if space_index == -1 or meta_index < space_index:
-            end_meta_index = meta_prompt.index(']')
+            end_meta_index = findMatchingBracket(meta_prompt[1:]) + 1
             colon_index = meta_prompt.index(':')
             token = meta_prompt[meta_index+1:colon_index].strip(' ')
             coors = meta_prompt[colon_index+1:end_meta_index].strip(' ')
             numbers = coors.split(',')
-            if(len(numbers) == 2):
+            skipWord = False
+            if token == "CustomLoss": # special case
+                skipWord = True
+                nameAndArgs = meta_prompt[colon_index + 1:]
+                nameSep = nameAndArgs.index(' ')
+                name = nameAndArgs[:nameSep]
+                args = nameAndArgs[nameSep + 1:-1]
+                customLosses[name] = (state.config.registered_loss_functions[name], args)
+            elif(len(numbers) == 2):
                 x = float(numbers[0])
                 y = float(numbers[1])
                 meta_info.append((token, AnnotationType.COOR, (x,y)))
@@ -71,7 +99,8 @@ def parse_prompt(meta_prompt):
                 meta_info.append((token, AnnotationType.BOX, Rect(x, y, width, height, 1)))
             else:
                 pass
-            prompt = add_word(prompt,token)
+            if not skipWord:
+                prompt = add_word(prompt,token)
             meta_prompt = meta_prompt[end_meta_index + 1:]
 
             #meta_prompt.index()
@@ -79,7 +108,7 @@ def parse_prompt(meta_prompt):
             token = meta_prompt[0:space_index + 1]
             prompt = add_word(prompt,token)
             meta_prompt = meta_prompt[space_index:]
-    return prompt, meta_info
+    return prompt, meta_info, customLosses
 
 def get_inner_folder_name():
     return get_meta_prompt_clean()
