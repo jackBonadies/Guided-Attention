@@ -6,6 +6,10 @@ This model does not use any fine tuning (all modification is done at inference) 
 # Example
 ![teaser](resource/example1.PNG)
 
+Demo:
+
+https://github.com/jackBonadies/Guided-Attention/assets/13188205/3cc76da6-a2a8-4628-8428-d499d4bf5437
+
 # Setup
 This code was tested using Python 3.10, torch 1.13.1.
 
