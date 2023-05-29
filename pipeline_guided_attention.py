@@ -234,7 +234,7 @@ class GuidedAttention(StableDiffusionPipeline):
         inside_loss_list = []
         outside_loss_list = []
 
-        if state.config.save_all_maps and False:
+        if state.config.save_all_maps:
             for index_i in range(0,len(self.tokenizer(state.config.prompt)['input_ids'][1:-1])):
                 image = attention_for_text[:, :, index_i] #16, 16
                 self.save_viridis(image, "_attnmap_" + self.get_token(index_i + 1))
@@ -294,7 +294,7 @@ class GuidedAttention(StableDiffusionPipeline):
         losses_dict["inside_loss"] = inside_loss_list
         losses_dict["outside_loss"] = outside_loss_list
         return losses_dict
-
+    
     def _aggregate_and_get_max_attention_per_token(self, attention_store: AttentionStore,
                                                    attention_res: int = 16,
                                                    smooth_attentions: bool = False,
@@ -305,12 +305,46 @@ class GuidedAttention(StableDiffusionPipeline):
         from_where=("up", "down", "mid")
         if state.optimizeDeepLatent:
             from_where=("up", ) # we have no effect on the down side of things.
+
+        save_self_attention = False
+        if save_self_attention:
+            attention_maps = aggregate_attention(
+                attention_store=attention_store,
+                res=attention_res,
+                from_where=from_where,
+                is_cross=False,
+                select=0)
+            self.save_numpy(attention_maps, "self_attn")
+
+        save_maps_at = 12
+        if state.save_individual_CA_maps and state.cur_time_step_iter == save_maps_at:
+            out = []
+            attention_maps = attention_store.get_average_attention()
+            for location in from_where:
+                map_iter = 0
+                for item in attention_maps[f"{location}_{'cross'}"]:
+                    res = int(item.shape[1]**.5)
+                    cross_maps = item.reshape(-1, res, res, item.shape[-1]) #8, res, res, 77
+                    map_iter += 1
+                    for head in range(0,8):
+                        map1 = cross_maps[head,:,:,1]
+                        avg = map1.mean()
+                        max1 = map1.max()
+                        tag = f"{location}_res_{res}_head_{head}_mapiter_{map_iter}_avg_{avg:.3}_max_{max1:.3}"
+                        self.save_viridis(map1, tag)
+                    tag = f"{location}_res_{res}_avgheads_mapiter_{map_iter}"
+                    self.save_viridis((cross_maps.sum(0) / 8)[:,:,1], tag)
+
         attention_maps = aggregate_attention(
             attention_store=attention_store,
             res=attention_res,
             from_where=from_where,
             is_cross=True,
             select=0)
+        
+        if state.save_individual_CA_maps and state.cur_time_step_iter == save_maps_at:
+            self.save_viridis(attention_maps[:,:,1], "final")
+
         losses_dict = self._compute_max_attention_per_index(
             attention_maps=attention_maps,
             smooth_attentions=smooth_attentions,
@@ -1067,6 +1101,12 @@ class GuidedAttention(StableDiffusionPipeline):
             prompt_output_path = state.config.output_path / helpers.get_inner_folder_name() / self.get_innermost_folder()
             prompt_output_path.mkdir(exist_ok=True, parents=True)
             plt.imsave(prompt_output_path / fname, x.detach().cpu())
+
+    def save_numpy(self, tensor1, tag):
+        fname = tag + "_" + helpers.get_meta_prompt_clean() + "_" + str(state.cur_time_step_iter)
+        prompt_output_path = state.config.output_path / helpers.get_inner_folder_name() / self.get_innermost_folder()
+        prompt_output_path.mkdir(exist_ok=True, parents=True)
+        np.save(prompt_output_path / fname,tensor1.cpu().detach().numpy())
 
     def get_token(self, index):
         return self.tokenizer.decode(self.tokenizer(state.config.prompt)['input_ids'][index])

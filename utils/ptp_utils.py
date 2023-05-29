@@ -225,7 +225,7 @@ class AttentionStore(AttentionControl):
 
     def forward(self, attn, is_cross: bool, place_in_unet: str):
         key = f"{place_in_unet}_{'cross' if is_cross else 'self'}"
-        if attn.shape[1] <= 32 ** 2:  # avoid memory overhead
+        if state.save_individual_CA_maps or attn.shape[1] <= 32 ** 2:  # avoid memory overhead
             self.step_store[key].append(attn)
         return attn
 

@@ -48,7 +48,9 @@ class RunConfig:
 
     sub_prompt_avg_within: bool = False
 
-    save_all_maps: bool = True
+    save_all_maps: bool = False
+
+    save_individual_CA_maps : bool = False
 
     def __post_init__(self):
         self.output_path.mkdir(exist_ok=True, parents=True)
