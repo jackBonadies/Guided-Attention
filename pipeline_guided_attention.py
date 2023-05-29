@@ -317,7 +317,7 @@ class GuidedAttention(StableDiffusionPipeline):
             self.save_numpy(attention_maps, "self_attn")
 
         save_maps_at = 12
-        if state.save_individual_CA_maps and state.cur_time_step_iter == save_maps_at:
+        if state.config.save_individual_CA_maps and state.cur_time_step_iter == save_maps_at:
             out = []
             attention_maps = attention_store.get_average_attention()
             for location in from_where:
@@ -342,7 +342,7 @@ class GuidedAttention(StableDiffusionPipeline):
             is_cross=True,
             select=0)
         
-        if state.save_individual_CA_maps and state.cur_time_step_iter == save_maps_at:
+        if state.config.save_individual_CA_maps and state.cur_time_step_iter == save_maps_at:
             self.save_viridis(attention_maps[:,:,1], "final")
 
         losses_dict = self._compute_max_attention_per_index(
