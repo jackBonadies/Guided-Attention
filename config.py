@@ -52,5 +52,7 @@ class RunConfig:
 
     save_individual_CA_maps : bool = False
 
+    only_update_on_threshold_steps : bool = True #temp true
+
     def __post_init__(self):
         self.output_path.mkdir(exist_ok=True, parents=True)

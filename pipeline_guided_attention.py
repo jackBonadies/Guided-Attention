@@ -995,7 +995,7 @@ class GuidedAttention(StableDiffusionPipeline):
                                     normalize_eot=sd_2_1)
 
                             # Perform gradient update
-                            if i < max_iter_to_alter:
+                            if (not state.config.only_update_on_threshold_steps and i < max_iter_to_alter) or (i in state.config.thresholds):
                                 if not self.meets_threshold(-1, state.config.thresholds, unscaled_losses):
                                     did_we_update = True
                                     loss, losses, unscaled_losses = self._compute_loss(losses_dict=max_attention_per_index)
