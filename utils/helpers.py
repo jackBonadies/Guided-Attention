@@ -60,7 +60,7 @@ def parse_prompt(meta_prompt):
     cur_index = 0
     prompt = ''
     meta_info = []
-    customLosses = {}
+    custom_losses = {}
     while(True):
         meta_prompt = meta_prompt.lstrip(' ')
         space_index = -1
@@ -70,9 +70,9 @@ def parse_prompt(meta_prompt):
         if '[' in meta_prompt:
             meta_index = meta_prompt.index('[')
         if space_index == -1 and meta_index == -1:
-            return (prompt, meta_info, customLosses)
+            return (prompt, meta_info, custom_losses)
         if meta_index == -1:
-            return (add_word(prompt,meta_prompt[0:]), meta_info, customLosses)
+            return (add_word(prompt,meta_prompt[0:]), meta_info, custom_losses)
         if space_index == -1 or meta_index < space_index:
             end_meta_index = findMatchingBracket(meta_prompt[1:]) + 1
             colon_index = meta_prompt.index(':')
@@ -86,7 +86,10 @@ def parse_prompt(meta_prompt):
                 nameSep = nameAndArgs.index(' ')
                 name = nameAndArgs[:nameSep]
                 args = nameAndArgs[nameSep + 1:-1]
-                customLosses[name] = (state.config.registered_loss_functions[name], args)
+                custom_losses[name] = (state.config.registered_loss_functions[name], args)
+                subprompts_of_interest = state.config.registered_loss_functions[name].subprompts_of_interest(args)
+                for subprompt_of_interest in subprompts_of_interest:
+                    meta_info.append((subprompt_of_interest, AnnotationType.KEYWORD, None))
             elif(len(numbers) == 2):
                 x = float(numbers[0])
                 y = float(numbers[1])
@@ -108,7 +111,7 @@ def parse_prompt(meta_prompt):
             token = meta_prompt[0:space_index + 1]
             prompt = add_word(prompt,token)
             meta_prompt = meta_prompt[space_index:]
-    return prompt, meta_info, customLosses
+    return prompt, meta_info, custom_losses
 
 def get_inner_folder_name():
     return get_meta_prompt_clean()

@@ -150,6 +150,10 @@ class CustomLossBase(ABC):
     def calc_loss(self, cross_attention_maps, text_args : str) -> torch.Tensor:
         pass
 
+    # optional method. used for diagnostic purposes.
+    def subprompts_of_interest(self, text_args : str) -> list[str]:
+        return []
+
     # convenience methods
     def parse_text_args(self, text_args : str):
         import ast
@@ -173,23 +177,35 @@ class CustomLossBase(ABC):
 class ToLeftOf(CustomLossBase):
     
     def calc_loss(self, cross_attention_maps, text_args : str) -> torch.Tensor:
-        #text args ex. (cat, vase)
+        # goes from text args i.e. (cat, vase) to tuple of strings i.e. ("cat", "vase").
         text_args = self.quote_items_in_tuple(text_args)
+        args = self.parse_text_args(text_args)
 
-        args = self.parse_text_args(text_args) #expected ("cat", "vase")
-        leftSideIndices = self.find_indices_for_sub_prompt(args[0])
-        rightSideIndices = self.find_indices_for_sub_prompt(args[1])
+        # get token indices for sub prompt (i.e. "cat" -> 2).
+        left_side_indices = self.find_indices_for_sub_prompt(args[0])
+        right_side_indices = self.find_indices_for_sub_prompt(args[1])
+
+        # calculate center x for the two subprompts.
         left_weighted_center = torch.Tensor([0.]).cuda()
         right_weighted_center = torch.Tensor([0.]).cuda()
-        for i in leftSideIndices:
+        for i in left_side_indices:
             map = self.get_map_for_token(cross_attention_maps, i, True)
-            left_weighted_center += self.calc_weighted_center(map)[0] / len(leftSideIndices)
-        for i in rightSideIndices:
+            left_weighted_center += self.calc_weighted_center(map)[0] / len(left_side_indices)
+        for i in right_side_indices:
             map = self.get_map_for_token(cross_attention_maps, i, True)
-            right_weighted_center += self.calc_weighted_center(map)[0] / len(leftSideIndices)
-        loss = (left_weighted_center + torch.Tensor([3]).cuda() - right_weighted_center) / 16
-        loss*=3 #weight
+            right_weighted_center += self.calc_weighted_center(map)[0] / len(left_side_indices)
+
+        # calculate loss. loss is non zero as long as gap of 20% of map width is between left and right objects.
+        map_width = cross_attention_maps.shape[1] # H x W x NumTokens
+        gap = .2 * map_width
+        loss = (left_weighted_center + torch.Tensor([gap]).cuda() - right_weighted_center) / map_width
+        loss *= 9 # custom weight
         return torch.max(loss, torch.Tensor([0]).cuda())
+    
+    def subprompts_of_interest(self, text_args : str) -> list[str]:
+        text_args = self.quote_items_in_tuple(text_args)
+        args = self.parse_text_args(text_args)
+        return list(args)
         
     def quote_items_in_tuple(self, text_args):
         items = text_args.strip('()').split(',')
