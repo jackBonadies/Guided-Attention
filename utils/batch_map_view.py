@@ -41,6 +41,7 @@ def showAttnPlot(folder, only_token = None, view_losses = False):
 
 
     maps = sorted(list(os.listdir(folder)))
+    maps = [map for map in maps if map.endswith('.png')]
 
     losses_for_token = {} #key = iter.sub_iter
     log_file_name = folder + ".txt"
